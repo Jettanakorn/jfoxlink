@@ -2,9 +2,9 @@
   <h1 align="center">AeroFlow Agent</h1>
   <p align="center"><i>Autonomous CFD Analysis Orchestrator</i></p>
   <p align="center">
-    <a href="https://github.com/jfox-aircraft/aeroflow/actions"><img src="https://github.com/jfox-aircraft/aeroflow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/jfox-aircraft/aeroflow/releases"><img src="https://img.shields.io/github/v/release/jfox-aircraft/aeroflow" alt="Release"></a>
-    <a href="https://github.com/jfox-aircraft/aeroflow/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jfox-aircraft/aeroflow" alt="License"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/actions"><img src="https://github.com/Jettanakorn/aeroflow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/releases"><img src="https://img.shields.io/github/v/release/Jettanakorn/aeroflow" alt="Release"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Jettanakorn/aeroflow" alt="License"></a>
   </p>
 </p>
 
@@ -32,7 +32,7 @@ Deployable via Docker Compose or Kubernetes Helm chart.
 
 ```bash
 # Clone
-git clone https://github.com/jfox-aircraft/aeroflow.git
+git clone https://github.com/Jettanakorn/aeroflow.git
 cd aeroflow
 
 # Start stack (PostgreSQL + agent)
