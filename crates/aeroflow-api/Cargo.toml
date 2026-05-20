@@ -1,0 +1,24 @@
+[package]
+name = "aeroflow-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+aeroflow-skills = { path = "../aeroflow-skills" }
+aeroflow-pipeline = { path = "../aeroflow-pipeline" }
+
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+axum.workspace = true
+tower-http = { version = "0.6", features = ["cors"] }
+jsonwebtoken = "9"
+tokio-stream = { version = "0.1", features = ["sync"] }
+prometheus.workspace = true

@@ -1,0 +1,28 @@
+# Rust
+target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AeroFlow workspace data
+workspace/
+cases/
+reports/
+temp/
+logs/
+import/
+
+# Environment
+.env
+*.local
+
+# Helm packages
+*.tgz

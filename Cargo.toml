@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aeroflow-core",
+    "crates/aeroflow-cli",
+    "crates/aeroflow-pipeline",
+    "crates/aeroflow-docker",
+    "crates/aeroflow-doctor",
+    "crates/aeroflow-skills",
+    "crates/aeroflow-mesh",
+    "crates/aeroflow-solver",
+    "crates/aeroflow-post",
+    "crates/aeroflow-report",
+    "crates/aeroflow-monitor",
+    "crates/aeroflow-learner",
+    "crates/aeroflow-events",
+    "crates/aeroflow-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Jettanakorn Pengsiri by JFOX Aircraft Co., Ltd."]
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+
+clap = { version = "4", features = ["derive"] }
+dialoguer = "0.11"
+indicatif = "0.17"
+
+ratatui = "0.29"
+crossterm = "0.28"
+
+bollard = "0.18"
+
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "uuid", "chrono"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+chrono = { version = "0.4", features = ["serde"] }
+
+thiserror = "2"
+anyhow = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+notify = "7"
+tera = "1"
+sysinfo = "0.33"
+axum = "0.8"
+stl-io = "0.6"
+which = "7"
+argmin = "0.10"
+rand = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+prometheus = { version = "0.13", features = ["process"] }

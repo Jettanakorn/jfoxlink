@@ -1,0 +1,14 @@
+[package]
+name = "aeroflow-monitor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+sysinfo.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true

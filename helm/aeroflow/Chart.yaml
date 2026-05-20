@@ -1,0 +1,18 @@
+apiVersion: v2
+name: aeroflow
+description: AeroFlow Agent — Autonomous CFD Analysis Orchestrator
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+icon: https://raw.githubusercontent.com/anomalyco/opencode/main/assets/opencode.svg
+keywords:
+  - cfd
+  - openfoam
+  - aerospace
+  - simulation
+home: https://github.com/jfox-aircraft/aeroflow
+sources:
+  - https://github.com/jfox-aircraft/aeroflow
+maintainers:
+  - name: Jettanakorn Pengsiri
+    email: jettanakorn@jfoxaircraft.com

@@ -1,0 +1,40 @@
+[package]
+name = "aeroflow-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "aeroflow"
+path = "src/main.rs"
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+aeroflow-pipeline = { path = "../aeroflow-pipeline" }
+aeroflow-docker = { path = "../aeroflow-docker" }
+aeroflow-doctor = { path = "../aeroflow-doctor" }
+aeroflow-skills = { path = "../aeroflow-skills" }
+aeroflow-mesh = { path = "../aeroflow-mesh" }
+aeroflow-solver = { path = "../aeroflow-solver" }
+aeroflow-post = { path = "../aeroflow-post" }
+aeroflow-report = { path = "../aeroflow-report" }
+aeroflow-monitor = { path = "../aeroflow-monitor" }
+aeroflow-learner = { path = "../aeroflow-learner" }
+aeroflow-events = { path = "../aeroflow-events" }
+aeroflow-api = { path = "../aeroflow-api" }
+
+clap.workspace = true
+dialoguer.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+which.workspace = true

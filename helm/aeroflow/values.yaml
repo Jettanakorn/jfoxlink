@@ -1,0 +1,128 @@
+# AeroFlow Agent — Helm values
+# Override per environment: helm install -f prod-values.yaml
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/jfox-aircraft/aeroflow
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+  # capabilities:
+  #   drop: ["ALL"]
+  # readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: aeroflow.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: aeroflow-tls
+  #    hosts:
+  #      - aeroflow.example.com
+
+resources:
+  limits:
+    cpu: 4000m
+    memory: 16Gi
+  requests:
+    cpu: 1000m
+    memory: 4Gi
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+volumes:
+  - name: workspace
+    persistentVolumeClaim:
+      claimName: aeroflow-workspace
+  - name: data
+    emptyDir: {}
+
+volumeMounts:
+  - name: workspace
+    mountPath: /workspace
+  - name: data
+    mountPath: /data
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16-alpine
+  auth:
+    database: aeroflow
+    username: aeroflow
+    password: aeroflow-secret
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# AeroFlow application configuration
+aeroflow:
+  workspaceDir: /workspace
+  maxConcurrentCases: 4
+  logLevel: info
+  allowRegistration: true
+  jwtSecret: aeroflow-jwt-secret-change-me
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  namespace: monitoring

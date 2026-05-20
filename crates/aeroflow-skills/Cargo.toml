@@ -1,0 +1,20 @@
+[package]
+name = "aeroflow-skills"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+sqlx.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+sha2 = "0.10"
+stl_io = "0.6"

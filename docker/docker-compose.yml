@@ -1,0 +1,53 @@
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: aeroflow/agent:dev
+    container_name: aeroflow-agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount a host directory for workspace data (huge OpenFOAM files)
+      # Override with: docker compose run -v /path/to/data:/data agent ...
+      - aeroflow_data:/data
+    environment:
+      - AEROFLOW_WORKSPACE_DIR=/data
+      - AEROFLOW_DATABASE_URL=postgres://aeroflow@db:5432/aeroflow
+      - AEROFLOW_DOCKER_SOCKET=/var/run/docker.sock
+      - AEROFLOW_OPENFOAM_IMAGE=microfluidica/openfoam:com
+      - AEROFLOW_MAX_CONCURRENT=4
+      - AEROFLOW_DEFAULT_CORES=4
+      - AEROFLOW_DEFAULT_MEMORY_GB=8
+      - AEROFLOW_WRITE_FORMAT=binary
+    depends_on:
+      db:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: '16G'
+
+  db:
+    image: postgres:16-alpine
+    container_name: aeroflow-db
+    environment:
+      POSTGRES_USER: aeroflow
+      POSTGRES_DB: aeroflow
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aeroflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+volumes:
+  aeroflow_data:
+  pgdata:

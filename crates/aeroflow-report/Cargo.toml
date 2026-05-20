@@ -1,0 +1,15 @@
+[package]
+name = "aeroflow-report"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+tera.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+tokio.workspace = true

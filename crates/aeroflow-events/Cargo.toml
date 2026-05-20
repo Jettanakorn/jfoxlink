@@ -1,0 +1,18 @@
+[package]
+name = "aeroflow-events"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+aeroflow-skills = { path = "../aeroflow-skills" }
+notify.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true

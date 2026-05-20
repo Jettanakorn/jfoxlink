@@ -1,0 +1,27 @@
+[package]
+name = "aeroflow-pipeline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aeroflow-core = { path = "../aeroflow-core" }
+aeroflow-docker = { path = "../aeroflow-docker" }
+aeroflow-mesh = { path = "../aeroflow-mesh" }
+aeroflow-solver = { path = "../aeroflow-solver" }
+aeroflow-post = { path = "../aeroflow-post" }
+aeroflow-report = { path = "../aeroflow-report" }
+aeroflow-monitor = { path = "../aeroflow-monitor" }
+aeroflow-learner = { path = "../aeroflow-learner" }
+aeroflow-skills = { path = "../aeroflow-skills" }
+aeroflow-events = { path = "../aeroflow-events" }
+
+tokio.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
