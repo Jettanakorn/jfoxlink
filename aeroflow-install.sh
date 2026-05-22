@@ -5,7 +5,7 @@ set -euo pipefail
 # Developer: Jettanakorn Pengsiri — JFOX Aircraft Co., Ltd.
 
 VERSION="0.4.0"
-REPO="ghcr.io/jfox-aircraft/aeroflow"
+REPO="ghcr.io/Jettanakorn/aeroflow"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
@@ -54,7 +54,7 @@ mkdir -p "$INSTALL_DIR"
 if [ "$METHOD" = "source" ]; then
     if [ ! -f "$PWD/Cargo.toml" ]; then
         echo "  Cloning repository..."
-        git clone https://github.com/jfox-aircraft/aeroflow.git "${INSTALL_DIR}/src"
+        git clone https://github.com/Jettanakorn/aeroflow.git "${INSTALL_DIR}/src"
         cd "${INSTALL_DIR}/src"
     else
         echo "  Using local source at $PWD"
@@ -128,5 +128,5 @@ echo ""
 echo "    3. Start the REST API server:"
 echo "       aeroflow serve"
 echo ""
-echo "  Documentation: https://github.com/jfox-aircraft/aeroflow"
+echo "  Documentation: https://github.com/Jettanakorn/aeroflow"
 echo ""

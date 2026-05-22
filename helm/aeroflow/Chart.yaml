@@ -10,9 +10,9 @@ keywords:
   - openfoam
   - aerospace
   - simulation
-home: https://github.com/jfox-aircraft/aeroflow
+home: https://github.com/Jettanakorn/aeroflow
 sources:
-  - https://github.com/jfox-aircraft/aeroflow
+  - https://github.com/Jettanakorn/aeroflow
 maintainers:
   - name: Jettanakorn Pengsiri
     email: jettanakorn@jfoxaircraft.com

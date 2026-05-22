@@ -1,7 +1,7 @@
 # AeroFlow Agent — Quickstart Guide
 
 > Developer: **Jettanakorn Pengsiri** — JFOX Aircraft Co., Ltd.
-> Rust nightly | 14-crate workspace | OpenFOAM + PostgreSQL + Prometheus
+> Rust nightly | 14-crate workspace + Python viz | OpenFOAM + PostgreSQL + Prometheus
 
 ---
 
@@ -117,10 +117,14 @@ aeroflow tui
 ### Step 4 — View results
 
 ```bash
-# Generate HTML report
+# Generate HTML report (includes 3 visualization images)
 aeroflow report my-wing
 
 # Opens: reports/my-wing/index.html
+# Images: reports/my-wing/images/
+#   - pressure_surface.png  — pressure contour on blade surface
+#   - velocity_slice.png    — velocity magnitude at mid-plane slice
+#   - convergence.png       — Cd/Cl convergence history
 ```
 
 ## 5. Auto-Import Workflow
@@ -346,9 +350,10 @@ aeroflow run ~/aeroflow-workspace/cases/naca2412-wing --trials 5
 # 6. Monitor via TUI
 aeroflow tui
 
-# 7. Generate and view report
+# 7. Generate and view report (with 3 visualization images)
 aeroflow report naca2412-wing
 # open ~/aeroflow-workspace/reports/naca2412-wing/index.html
+# Images: ~/aeroflow-workspace/reports/naca2412-wing/images/
 
 # 8. Check the learned skill
 aeroflow skills list

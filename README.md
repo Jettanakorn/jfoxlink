@@ -24,6 +24,7 @@ Deployable via Docker Compose or Kubernetes Helm chart.
 - **Autonomous skill learning** — Gaussian Process optimizes solver parameters per (geometry, flow regime)
 - **Real-time monitoring** — TUI dashboard, SSE event stream, Prometheus metrics
 - **SaaS-ready** — JWT auth, multi-tenant REST API, file watcher auto-import
+- **Visualization** — auto-generated pressure surface, velocity slice, and convergence plots (foamToVTK + Python matplotlib)
 - **Production-grade** — Helm chart, HPA, multi-arch Docker images, structured JSON logging
 
 ---
@@ -61,7 +62,7 @@ helm install aeroflow helm/aeroflow
 STL → surfaceFeatureExtract → blockMesh + snappyHexMesh (adaptive, 3x retry)
   → checkMesh → controlDict / fvSchemes / fvSolution
   → simpleFoam / rhoCentralFoam (auto-selected by Mach)
-  → forceCoeffs extraction → HTML report
+  → forceCoeffs extraction → foamToVTK → Python viz (pressure/velocity/convergence plots) → HTML report
 ```
 
 Skills feedback loop: `case result → reward → GP update → next params → run again`
@@ -73,25 +74,26 @@ Skills feedback loop: `case result → reward → GP update → next params → 
 | Command | Description |
 |---------|-------------|
 | `aeroflow init` | Ingest STL, fingerprint geometry, create case |
-| `aeroflow run` | Execute full 8-stage CFD pipeline |
+| `aeroflow run` | Execute full CFD pipeline (8 stages + visualization) |
+| `aeroflow tui` | Interactive terminal dashboard |
 | `aeroflow status` | List all cases and their stage |
 | `aeroflow report` | Generate HTML report from results |
 | `aeroflow watch` | Auto-import STL files from directory |
 | `aeroflow serve` | REST API + file watcher (combined) |
 | `aeroflow doctor` | System health check + auto-fix |
-| `aeroflow skills optimize` | Bayesian optimization via GP |
-| `aeroflow user create` | Multi-tenant user management |
-| `aeroflow tui` | Interactive terminal dashboard |
+| `aeroflow skills` | Skills DB management (list/show/optimize/export/import) |
+| `aeroflow user` | Multi-tenant user management (create/list/update/delete) |
+| `aeroflow settings` | Configuration management (show/set/init/reset) |
 
 ---
 
 ## Architecture
 
-14 Rust crates in a workspace:
+14 Rust crates in a workspace + Python visualization scripts:
 
 ```text
 aeroflow-cli         CLI + TUI
-├── aeroflow-pipeline  8-stage orchestrator
+├── aeroflow-pipeline  9-stage orchestrator (+ Visualization)
 │   ├── aeroflow-mesh     blockMesh + snappyHexMesh + quality
 │   ├── aeroflow-solver   Config gen + subprocess launch
 │   └── aeroflow-post     Force extraction
@@ -102,8 +104,9 @@ aeroflow-cli         CLI + TUI
 ├── aeroflow-doctor    Health checks (20+ checks, 7 categories)
 ├── aeroflow-core      Types, config, metrics, workspace
 ├── aeroflow-docker    Container management
-├── aeroflow-report    Tera → HTML report
-└── aeroflow-monitor   sysinfo resource monitoring
+├── aeroflow-report    Tera → HTML report (with viz images)
+├── aeroflow-monitor   sysinfo resource monitoring
+└── scripts/viz/       Python VTK + matplotlib visualization
 ```
 
 ---

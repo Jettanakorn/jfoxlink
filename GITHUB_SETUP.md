@@ -9,13 +9,13 @@
 ### Option A — Via GitHub CLI
 
 ```bash
-gh repo create jfox-aircraft/aeroflow --public --description "AeroFlow Agent — Autonomous CFD Analysis Orchestrator" --homepage "https://jfoxaircraft.com"
+gh repo create Jettanakorn/aeroflow --public --description "AeroFlow Agent — Autonomous CFD Analysis Orchestrator"
 ```
 
 ### Option B — Via Web
 
 1. Go to https://github.com/new
-2. Owner: `jfox-aircraft` (or your org)
+2. Owner: `Jettanakorn`
 3. Repository name: `aeroflow`
 4. Description: `Autonomous CFD analysis using OpenFOAM + ParaView. Self-improving skills database with Gaussian Process optimization.`
 5. Visibility: Public or Private
@@ -32,7 +32,7 @@ git add .
 git commit -m "Initial commit: AeroFlow Agent v0.4.0 — all 5 phases"
 
 # Point to your remote
-git remote add origin https://github.com/jfox-aircraft/aeroflow.git
+git remote add origin https://github.com/Jettanakorn/aeroflow.git
 git branch -M main
 git push -u origin main
 ```
@@ -207,9 +207,9 @@ git push origin main --tags
 ### What the CI does on release:
 
 1. **Docker** — builds `linux/amd64` and `linux/arm64`, pushes to GHCR with tags:
-   - `ghcr.io/jfox-aircraft/aeroflow:v0.5.0`
-   - `ghcr.io/jfox-aircraft/aeroflow:v0.5`
-   - `ghcr.io/jfox-aircraft/aeroflow:latest`
+   - `ghcr.io/Jettanakorn/aeroflow:v0.5.0`
+   - `ghcr.io/Jettanakorn/aeroflow:v0.5`
+   - `ghcr.io/Jettanakorn/aeroflow:latest`
 2. **Docs** — deploys `cargo doc` to GitHub Pages
 3. **Release** — packages Helm chart and uploads artifacts
 
@@ -236,10 +236,14 @@ aeroflow/
 │   └── ISSUE_TEMPLATE/
 │       ├── bug_report.md
 │       └── feature_request.md
+├── scripts/
+│   └── viz/                        # Python VTK + matplotlib viz
+│       ├── generate_viz.py         # 3 image types
+│       └── inject_report.py        # Embed images in HTML
 ├── crates/
 │   ├── aeroflow-core/              # Types, config, events, metrics
 │   ├── aeroflow-cli/               # CLI + TUI
-│   ├── aeroflow-pipeline/          # 8-stage orchestrator
+│   ├── aeroflow-pipeline/          # 9-stage orchestrator
 │   ├── aeroflow-docker/            # Container management
 │   ├── aeroflow-doctor/            # Health checks
 │   ├── aeroflow-skills/            # PostgreSQL + fingerprint
@@ -267,6 +271,8 @@ aeroflow/
 ├── GITHUB_SETUP.md
 ├── PHASE_ROADMAP.md
 ├── Cargo.toml                      # Workspace root
+├── aeroflow-install.sh             # Unix install script
+├── aeroflow-install.ps1            # Windows install script
 └── README.md                       # See Section 11
 ```
 
@@ -281,10 +287,9 @@ Create or update `README.md`:
   <h1 align="center">AeroFlow Agent</h1>
   <p align="center"><i>Autonomous CFD Analysis Orchestrator</i></p>
   <p align="center">
-    <a href="https://github.com/jfox-aircraft/aeroflow/actions"><img src="https://github.com/jfox-aircraft/aeroflow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/jfox-aircraft/aeroflow/releases"><img src="https://img.shields.io/github/v/release/jfox-aircraft/aeroflow" alt="Release"></a>
-    <a href="https://hub.docker.com/r/jfoxaircraft/aeroflow"><img src="https://img.shields.io/docker/pulls/jfoxaircraft/aeroflow" alt="Docker Pulls"></a>
-    <a href="https://github.com/jfox-aircraft/aeroflow/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jfox-aircraft/aeroflow" alt="License"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/actions"><img src="https://github.com/Jettanakorn/aeroflow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/releases"><img src="https://img.shields.io/github/v/release/Jettanakorn/aeroflow" alt="Release"></a>
+    <a href="https://github.com/Jettanakorn/aeroflow/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Jettanakorn/aeroflow" alt="License"></a>
   </p>
 </p>
 

@@ -1,7 +1,7 @@
 # AeroFlow Agent — Phase Roadmap
 
 > Developer: **Jettanakorn Pengsiri** by JFOX Aircraft Co., Ltd.
-> Rust 1.95 nightly | Edition 2024 | 14-crate workspace | OpenFOAM + ParaView + VTK | PostgreSQL + Prometheus
+> Rust nightly | Edition 2024 | 14-crate workspace + Python viz | OpenFOAM + ParaView + VTK | PostgreSQL + Prometheus
 
 ---
 
@@ -17,6 +17,7 @@
 | **P3.5** | 🧹 Polish | File watcher, auto-fix doctor, continuous monitoring, graceful shutdown |
 | **P4** | 🧠 Skills | Real STL voxelization, Gaussian Process optimization, autonomous skill learning |
 | **P5** | 🚀 Production | CI/CD, Prometheus metrics, K8s Helm chart, structured logging, docs |
+| **P6** | 📊 Visualization | foamToVTK export + Python matplotlib plots (pressure/velocity/convergence) embedded in report |
 
 ---
 
@@ -26,12 +27,13 @@
 |-------|-------|--------|
 | **P0** | Scaffold — workspace, core types, CLI, Docker, DB schema | ✅ Complete |
 | **P0.5** | Settings, Users, Workspace, Binary Format | ✅ Complete |
-| **P1** | Real Implementations — replace all stubs | 🔄 In Progress |
-| **P2** | Pipeline Integration — end-to-end autonomous execution | ⏳ Planned |
-| **P3** | Multi-Tenant SaaS — auth, web API, quotas, isolation | ⏳ Planned |
-| **P3.5** | Polish — Docker health, file watcher, monitoring, alerts | ⏳ Planned |
-| **P4** | Advanced Skills — real STL voxelization, GP optimization | ⏳ Planned |
-| **P5** | Production — CI/CD, metrics, structured logging, Helm chart, scaling, docs | 🔄 In Progress |
+| **P1** | Real Implementations — replace all stubs | ✅ Complete |
+| **P2** | Pipeline Integration — end-to-end autonomous execution | ✅ Complete |
+| **P3** | Multi-Tenant SaaS — auth, web API, quotas, isolation | ✅ Complete |
+| **P3.5** | Polish — Docker health, file watcher, monitoring, alerts | ✅ Complete |
+| **P4** | Advanced Skills — real STL voxelization, GP optimization | ✅ Complete |
+| **P5** | Production — CI/CD, metrics, structured logging, Helm chart, scaling, docs | ✅ Complete |
+| **P6** | Visualization — foamToVTK + Python matplotlib, report embedding | ✅ Complete |
 
 ---
 
@@ -41,7 +43,7 @@
 
 ### Deliverables
 
-- [x] **Workspace root** `Cargo.toml` — 13 crate members, all deps
+- [x] **Workspace root** `Cargo.toml` — 14 crate members, all deps
 - [x] **aeroflow-core** — types, config, errors, event bus
 - [x] **aeroflow-cli** — clap CLI with 11 subcommands, ratatui TUI (3 tabs)
 - [x] **aeroflow-pipeline** — PipelineOrchestrator state machine (8 phases + mesh quality loop)
@@ -269,14 +271,14 @@ SolverDefaults              // Min/max iterations, write interval, relaxation fa
 
 ### Milestones
 
-- [ ] **Full pipeline orchestration** — run all 8 stages sequentially with state persistence
-- [ ] **Mesh quality auto-loop** — up to 3 remesh attempts with parameter adjustment
-- [ ] **Convergence detection** — real-time residual monitoring, auto-stop on convergence
-- [ ] **Divergence recovery** — detect solver divergence, adjust relaxation, restart
-- [ ] **Event bus integration** — all stages emit events, TUI listens live
-- [ ] **Report generation** — real data from real cases, Tera → HTML
-- [ ] **`aeroflow status`** — query case progress from database
-- [ ] **`aeroflow report`** — generate report from completed case data
+- [x] **Full pipeline orchestration** — run all 8 stages sequentially with state persistence
+- [x] **Mesh quality auto-loop** — up to 3 remesh attempts with parameter adjustment
+- [x] **Convergence detection** — real-time residual monitoring, auto-stop on convergence
+- [x] **Divergence recovery** — detect solver divergence, adjust relaxation, restart
+- [x] **Event bus integration** — all stages emit events, TUI listens live
+- [x] **Report generation** — real data from real cases, Tera → HTML
+- [x] **`aeroflow status`** — query case progress from database
+- [x] **`aeroflow report`** — generate report from completed case data
 
 ### Key Architectural Goals
 
@@ -361,17 +363,17 @@ STL ──► Import ──► Surface ──► Mesh ──► Quality? ──�
 
 ### Milestones
 
-- [ ] **Real STL voxelization** — `stl-io` read → 64³ voxel grid → SHA-256 hash
-- [ ] **Geometry fingerprinting** — multi-resolution hashing: 8³, 32³, 64³
-- [ ] **Flow regime key** — compute from `(Mach, Re, flow_type, compressibility)`
-- [ ] **Skill matching** — find best skill for `(geometry_hash, flow_regime_key)`
-- [ ] **Gaussian Process** — real GP regression, not stub
+- [x] **Real STL voxelization** — `stl-io` read → 64³ voxel grid → SHA-256 hash
+- [x] **Geometry fingerprinting** — multi-resolution hashing: 8³, 32³, 64³
+- [x] **Flow regime key** — compute from `(Mach, Re, flow_type, compressibility)`
+- [x] **Skill matching** — find best skill for `(geometry_hash, flow_regime_key)`
+- [x] **Gaussian Process** — real GP regression, not stub
   - Kernel: Matern 5/2 with automatic relevance determination (ARD)
   - Acquisition function: Expected Improvement (EI)
-- [ ] **Trial management** — `parameter_trials` table: insert, query best, prune worst
-- [ ] **Autonomous optimization** — `aeroflow skills optimize` runs N trials, learns
-- [ ] **Reward function** — composite score from Cl error, Cd excess, y+, residuals, mesh quality
-- [ ] **Skill export/import** — JSON serialization of skill + GP model for sharing
+- [x] **Trial management** — `parameter_trials` table: insert, query best, prune worst
+- [x] **Autonomous optimization** — `aeroflow skills optimize` runs N trials, learns
+- [x] **Reward function** — composite score from Cl error, Cd excess, y+, residuals, mesh quality
+- [x] **Skill export/import** — JSON serialization of skill + GP model for sharing
 
 ### GP Optimization Loop
 
@@ -398,11 +400,11 @@ STL ──► Import ──► Surface ──► Mesh ──► Quality? ──�
 - [x] **CI/CD pipeline** — GitHub Actions: `cargo check` → test → lint → build → Docker push (multi-arch)
 - [x] **Multi-arch builds** — `linux/amd64`, `linux/arm64` via QEMU + Docker Buildx
 - [x] **Prometheus metrics** — 14 metrics: case throughput, queue depth, solver iterations, mesh failures, HTTP request count/duration, DB query duration, pipeline duration
-- [ ] **Grafana dashboards** — system health, case progress, skill improvement trends
-- [ ] **Database backups** — automated pg_dump to S3/MinIO, point-in-time recovery
-- [ ] **Log aggregation** — structured JSON logs (`--json-logs` flag), Loki integration
-- [ ] **Horizontal scaling** — multiple agent instances, shared DB, work queue
-- [ ] **Documentation** — CLI reference, API docs, architecture guide, deployment guide
+- [x] **Grafana dashboards** — system health, case progress, skill improvement trends
+- [x] **Database backups** — automated pg_dump to S3/MinIO, point-in-time recovery
+- [x] **Log aggregation** — structured JSON logs (`--json-logs` flag), Loki integration
+- [x] **Horizontal scaling** — multiple agent instances, shared DB, work queue
+- [x] **Documentation** — CLI reference, API docs, architecture guide, deployment guide
 - [x] **Helm chart** — `helm/aeroflow/` with Deployment, Service, Ingress, ConfigMap, Secrets, PVC, HPA, ServiceMonitor
 - [x] **Auto-scaling** — HPA based on CPU/memory utilization
 - [x] **Health probes** — liveness + readiness on `/api/health`
@@ -425,6 +427,45 @@ STL ──► Import ──► Surface ──► Mesh ──► Quality? ──�
 | `helm/aeroflow/Chart.yaml` | New — Helm chart definition |
 | `helm/aeroflow/values.yaml` | New — configurable values (40+ settings) |
 | `helm/aeroflow/templates/*` | New — 9 K8s resource templates |
+
+---
+
+## P6 — Visualization & Report Enhancement (✅ Complete)
+
+> foamToVTK export → Python VTK+matplotlib → images embedded in Tera HTML report.
+
+### Milestones
+
+- [x] **foamToVTK export** — pipeline exports VTK at `latestTime` with `(p, U)` fields
+- [x] **Python visualization script** — `scripts/viz/generate_viz.py` generates 3 image types:
+  - `pressure_surface.png` — pressure contour on blade surface (VTK `.vtp` → matplotlib)
+  - `velocity_slice.png` — velocity magnitude at mid-plane slice (VTK `.vtu` → matplotlib)
+  - `convergence.png` — Cd/Cl convergence history from `forceCoeffs` log
+- [x] **Report embedding** — images stored in `report/images/`, injected via updated Tera template
+- [x] **Pipeline integration** — `Stage::Visualization` runs after post-processing
+- [x] **Automatic fallback** — pipeline succeeds even if viz generation fails
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Python for viz (not Rust) | matplotlib + VTK Python bindings are mature; Rust VTK bindings (`vtkio`) are limited |
+| foamToVTK export | OpenFOAM's built-in VTK exporter handles polyhedral/hex decomposition |
+| Images embedded in report | Self-contained HTML, no external viewer needed; one `report/` directory per case |
+| 3 standard views | Surface pressure (aerodynamic load), velocity slice (flow field), convergence (solver health) |
+
+### Visualization Pipeline
+
+```text
+Post-processing (forces)
+  → foamToVTK -latestTime -fields '(p U)'
+  → generate_viz.py reads VTP/VTU
+    ├── pressure_surface.png   (blade surface pressure contour)
+    ├── velocity_slice.png     (mid-plane velocity magnitude)
+    └── convergence.png        (Cd/Cl history from log)
+  → report.html.tera embeds images in "Visualization" section
+  → report/index.html with all 3 images
+```
 
 ---
 
@@ -474,6 +515,7 @@ aeroflow-cli
 | v0.2.0 | 2026-05-20 | P2 pipeline + P3 API — end-to-end CFD, REST API, JWT auth, file watcher |
 | v0.3.0 | 2026-05-20 | P4 skills — real STL voxelization, Gaussian Process, Bayesian optimizer |
 | v0.4.0 | 2026-05-20 | P5 production — CI/CD, Prometheus metrics, Helm chart, structured logging |
+| v0.5.0 | 2026-05-22 | P6 visualization — foamToVTK export, Python matplotlib, 3 image types, report embedding |
 
 ---
 

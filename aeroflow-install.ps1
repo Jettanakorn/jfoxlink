@@ -8,7 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 $Version = "0.4.0"
-$Repo = "ghcr.io/jfox-aircraft/aeroflow"
+$Repo = "ghcr.io/Jettanakorn/aeroflow"
 
 Write-Host @"
 
@@ -47,7 +47,7 @@ if (Get-Command rustc -ErrorAction SilentlyContinue) {
     Write-Host "  Rust detected — building from source (recommended)"
     $method = "source"
 } else {
-    Write-Host "  Using Docker image (ghcr.io/jfox-aircraft/aeroflow)"
+    Write-Host "  Using Docker image (ghcr.io/Jettanakorn/aeroflow)"
 }
 
 # ── 3. Install / build ──
@@ -59,7 +59,7 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 if ($method -eq "source") {
     if (-not (Test-Path "$PSScriptRoot\Cargo.toml")) {
         Write-Host "  Cloning repository..."
-        git clone https://github.com/jfox-aircraft/aeroflow.git "$InstallDir\src" 2>&1 | Out-Null
+        git clone https://github.com/Jettanakorn/aeroflow.git "$InstallDir\src" 2>&1 | Out-Null
         Set-Location "$InstallDir\src"
     } else {
         Write-Host "  Using local source at $PSScriptRoot"
@@ -142,5 +142,5 @@ Write-Host @"
     3. Start the REST API server:
        aeroflow serve
 
-  Documentation: https://github.com/jfox-aircraft/aeroflow
+  Documentation: https://github.com/Jettanakorn/aeroflow
 "@ -ForegroundColor Cyan
