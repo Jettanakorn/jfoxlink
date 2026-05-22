@@ -138,6 +138,18 @@ Available at `http://localhost:8080/metrics`
 
 ---
 
+## Version History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| v0.1.0 | 2026-05-20 | P0 scaffold + P0.5 settings/users/workspace/binary |
+| v0.2.0 | 2026-05-20 | P1–P2 real pipeline: end-to-end CFD, mesh quality loop, solver |
+| v0.3.0 | 2026-05-20 | P3 SaaS: REST API, JWT auth, file watcher, multi-tenant |
+| v0.4.0 | 2026-05-20 | P4–P5 production: GP optimization, CI/CD, Helm chart, metrics |
+| **v0.5.0** | **2026-05-22** | **P6 visualization: foamToVTK export, Python matplotlib images (pressure/velocity/convergence), report embedding** |
+
+---
+
 ## License
 
 MIT © Jettanakorn Pengsiri — JFOX Aircraft Co., Ltd.
