@@ -1,10 +1,11 @@
 use aeroflow_core::{
-    CaseId, CaseMeta, ForceCoefficients, IntakeConfig, MeshQualityMetrics, SolverStats,
+    CaseId, CaseMeta, ForceCoefficients, IntakeConfig, MeshParams, MeshQualityMetrics, SolverStats,
     Stage, SystemEvent, EventBus, create_event_bus,
 };
-use aeroflow_mesh::{MeshGenerator, MeshQualityEngine};
+use aeroflow_mesh::{GeoBounds, MeshGenerator, MeshQualityEngine};
 use aeroflow_post::ForceExtractor;
 use aeroflow_report::ReportGenerator;
+use aeroflow_skills::SkillsDb;
 use aeroflow_solver::{ProgressCallback, SolverLauncher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,12 +15,21 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
+pub struct PipelineResult {
+    pub stage: Stage,
+    pub forces: ForceCoefficients,
+    pub mesh_metrics: MeshQualityMetrics,
+    pub solver_stats: SolverStats,
+}
+
 pub struct PipelineOrchestrator {
     event_bus: EventBus,
     cases: HashMap<CaseId, CaseMeta>,
     active_cases: HashMap<CaseId, Stage>,
     max_concurrent: u32,
     data_dir: PathBuf,
+    db: Option<SkillsDb>,
 }
 
 impl PipelineOrchestrator {
@@ -30,7 +40,13 @@ impl PipelineOrchestrator {
             active_cases: HashMap::new(),
             max_concurrent,
             data_dir,
+            db: None,
         }
+    }
+
+    pub fn with_db(mut self, db: SkillsDb) -> Self {
+        self.db = Some(db);
+        self
     }
 
     pub fn event_bus(&self) -> &EventBus {
@@ -38,7 +54,10 @@ impl PipelineOrchestrator {
     }
 
     pub fn register_case(&mut self, name: &str) -> CaseId {
-        let id = Uuid::new_v4();
+        self.register_case_with_id(name, Uuid::new_v4())
+    }
+
+    pub fn register_case_with_id(&mut self, name: &str, id: CaseId) -> CaseId {
         let meta = CaseMeta {
             id,
             name: name.to_string(),
@@ -66,7 +85,8 @@ impl PipelineOrchestrator {
         case_path: &Path,
         solver_name: &str,
         cancel: Option<Arc<AtomicBool>>,
-    ) -> Result<Stage, anyhow::Error> {
+        mesh_params: Option<&MeshParams>,
+    ) -> Result<PipelineResult, anyhow::Error> {
         if self.active_cases.len() as u32 > self.max_concurrent {
             anyhow::bail!("Max concurrent cases reached ({}).", self.max_concurrent);
         }
@@ -78,6 +98,9 @@ impl PipelineOrchestrator {
         info!("Starting pipeline for case '{}' ({})", case_name, case_id);
         self.emit(case_id, "pipeline", format!("Pipeline started for '{}'", case_name));
 
+        // Ensure logs directory exists
+        let _ = std::fs::create_dir_all(case_path.join("logs"));
+
         // Verify case directory
         if !case_path.join("constant").join("triSurface").exists() {
             anyhow::bail!("No STL geometry found in {:?}. Run 'aeroflow init' first.", case_path.join("constant/triSurface"));
@@ -85,6 +108,7 @@ impl PipelineOrchestrator {
 
         // Phase 1: Import — STL already placed by init
         self.transition(case_id, Stage::Imported);
+        self.write_initial_system_dicts(case_path)?;
 
         // Phase 2: Surface features
         self.transition(case_id, Stage::SurfacePrep);
@@ -92,6 +116,9 @@ impl PipelineOrchestrator {
 
         // Phase 3: Generate background mesh
         self.transition(case_id, Stage::Meshing);
+        // Remove any leftover mesh time dirs before starting fresh meshing
+        self.remove_all_time_dirs(case_path);
+        self.write_blockmesh_dict(case_path)?;
         self.run_block_mesh(case_path)?;
 
         // Phase 4: SnappyHexMesh + adaptive mesh quality loop (up to 3 attempts)
@@ -105,8 +132,15 @@ impl PipelineOrchestrator {
         for attempt in 1..=3 {
             self.transition(case_id, Stage::Meshing);
 
+            // Reset to clean blockMesh background before each snappyHexMesh attempt
+            // (snappyHexMesh fails with hexRef8 errors if run on an already-refined mesh)
             if attempt > 1 {
-                // Write adaptive snappy dict based on previous checkMesh results
+                let _ = std::fs::remove_dir_all(case_path.join("constant").join("polyMesh"));
+                self.run_block_mesh(case_path)?;
+            }
+
+            // Write snappyHexMeshDict (with refinement regions from attempt 1)
+            {
                 let mesh_gen = MeshGenerator::with_format(aeroflow_core::OpenFOAMFormat::Binary);
                 let dummy_config = IntakeConfig {
                     geometry_description: String::new(), geometry_file: None,
@@ -118,12 +152,19 @@ impl PipelineOrchestrator {
                     human_in_loop: false, priority: aeroflow_core::Priority::Balanced,
                     hpc_cores: 4, time_budget_hours: 24.0,
                 };
-                let snappy_dict = mesh_gen.generate_adaptive_snappy_dict(&dummy_config, &mesh_metrics, attempt);
+                let stl_path = self.find_stl(case_path);
+                let geo_bounds = stl_path.as_ref().and_then(|p| GeoBounds::from_stl(p));
+                let stl_stem = stl_path.as_ref().and_then(|p| p.file_stem()).and_then(|s| s.to_str());
+                let snappy_dict = mesh_gen.generate_adaptive_snappy_with_bounds(&dummy_config, &mesh_metrics, attempt, geo_bounds.as_ref(), stl_stem, mesh_params);
                 std::fs::write(case_path.join("system").join("snappyHexMeshDict"), &snappy_dict)?;
-                info!("  Written adaptive snappyHexMeshDict (attempt {})", attempt);
+                info!("  Written snappyHexMeshDict (attempt {})", attempt);
             }
 
             self.run_snappy_hex_mesh(case_path, attempt)?;
+
+            // SnappyHexMesh may write the refined mesh to a time directory;
+            // ensure it's available in constant/polyMesh
+            self.ensure_mesh_in_constant(case_path);
 
             self.transition(case_id, Stage::MeshQuality);
             mesh_metrics = self.run_check_mesh(case_path)?;
@@ -154,6 +195,9 @@ impl PipelineOrchestrator {
             anyhow::bail!("Mesh quality check failed after 3 attempts");
         }
 
+        // Clean stale time directories (keep 0/ with initial fields)
+        self.clean_time_dirs(case_path);
+
         // Phase 5: Solver setup — copy controlDict, fvSchemes, fvSolution
         self.transition(case_id, Stage::Setup);
         self.setup_solver(case_path, solver_name)?;
@@ -173,19 +217,54 @@ impl PipelineOrchestrator {
         self.transition(case_id, Stage::PostProcessing);
         let forces = self.run_post_process(case_path)?;
 
-        // Phase 8: Generate report
+        // Phase 8: Visualization — generate VTK export and rendered images
+        self.transition(case_id, Stage::Visualization);
+        let viz_images = self.run_visualization(case_path)?;
+
+        // Phase 9: Generate report
         self.transition(case_id, Stage::Report);
-        self.generate_report(case_path, &case_name, &forces, &solver_stats)?;
+        self.generate_report(case_path, &case_name, &mesh_metrics, &forces, &solver_stats, &viz_images)?;
+
+        // Persist results to database if available
+        self.persist_to_db(case_id, &mesh_metrics, &forces, &solver_stats);
 
         // Complete
         self.transition(case_id, Stage::Complete);
         info!("Pipeline complete for case '{}'", case_name);
         self.emit(case_id, "pipeline", format!("Pipeline complete for '{}'", case_name));
 
-        Ok(Stage::Complete)
+        Ok(PipelineResult {
+            stage: Stage::Complete,
+            forces,
+            mesh_metrics,
+            solver_stats,
+        })
     }
 
     // ── Stage implementations ──
+
+    /// Write minimal system dicts so pre-solver tools (surfaceFeatureExtract, blockMesh, snappyHexMesh) can start.
+    /// The solver phase will overwrite these with real ones.
+    fn write_initial_system_dicts(&self, case_path: &Path) -> Result<(), anyhow::Error> {
+        let system_dir = case_path.join("system");
+        std::fs::create_dir_all(&system_dir)?;
+        let files: Vec<(&str, &str)> = vec![
+            ("controlDict", "application surfaceFeatureExtract;\nstartFrom startTime;\nstartTime 0;\nstopAt endTime;\nendTime 1;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 1;\n"),
+            ("surfaceFeatureExtractDict", "surfaces (\"*.stl\");\nextractionMethod extractFromSurface;\nextractFromSurfaceCoeffs { includedAngle 150; writeObj true; }\n"),
+            ("fvSchemes", "ddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\ndivSchemes { default Gauss linear; }\nlaplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n"),
+            ("fvSolution", "solvers { p { solver PCG; preconditioner DIC; tolerance 1e-06; relTol 0; } U { solver smoothSolver; smoother GaussSeidel; tolerance 1e-06; relTol 0; nSweeps 1; } } SIMPLE { nNonOrthogonalCorrectors 0; consistent yes; } relaxationFactors { p 0.3; U 0.7; } \n"),
+        ];
+        for (name, content) in &files {
+            let path = system_dir.join(name);
+            if !path.exists() {
+                let dict = format!(
+                    "FoamFile {{ version 2.0; format ascii; class dictionary; object {name}; }}\n{content}"
+                );
+                std::fs::write(&path, dict.as_bytes())?;
+            }
+        }
+        Ok(())
+    }
 
     fn run_surface_features(&self, case_path: &Path) -> Result<(), anyhow::Error> {
         info!("  Running surfaceFeatureExtract...");
@@ -200,6 +279,36 @@ impl PipelineOrchestrator {
             }
         }
         info!("  ✓ surfaceFeatureExtract complete");
+        Ok(())
+    }
+
+    fn find_stl(&self, case_path: &Path) -> Option<std::path::PathBuf> {
+        let tri_surface = case_path.join("constant").join("triSurface");
+        if tri_surface.is_dir() {
+            for entry in std::fs::read_dir(&tri_surface).ok()? {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                let ext = path.extension()?.to_string_lossy().to_lowercase();
+                if ext == "stl" || ext == "stlb" {
+                    return Some(path);
+                }
+            }
+        }
+        None
+    }
+
+    fn write_blockmesh_dict(&self, case_path: &Path) -> Result<(), anyhow::Error> {
+        info!("  Writing blockMeshDict...");
+        let stl_path = self.find_stl(case_path);
+        let geo_bounds = stl_path.as_ref().and_then(|p| GeoBounds::from_stl(p));
+        if geo_bounds.is_some() {
+            info!("    Auto-sized from STL bounding box");
+        } else {
+            info!("    Using default domain (STL bounds unavailable)");
+        }
+        let mesh_gen = MeshGenerator::with_format(aeroflow_core::OpenFOAMFormat::Binary);
+        let dict = mesh_gen.generate_blockmesh_with_bounds(geo_bounds.as_ref());
+        std::fs::write(case_path.join("system").join("blockMeshDict"), dict.as_bytes())?;
         Ok(())
     }
 
@@ -219,13 +328,16 @@ impl PipelineOrchestrator {
     fn run_snappy_hex_mesh(&self, case_path: &Path, attempt: u32) -> Result<(), anyhow::Error> {
         info!("  Running snappyHexMesh (attempt {})...", attempt);
         // For re-mesh attempts > 1, override mesh quality settings to relax
-        let mut args = vec!["-case".to_string(), case_path.to_string_lossy().to_string()];
-        if attempt > 1 {
-            args.push("-overwrite".to_string());
-        }
+        let args = vec!["-case".to_string(), case_path.to_string_lossy().to_string(), "-overwrite".to_string()];
         let output = Command::new("snappyHexMesh")
             .args(&args)
             .output()?;
+        // Save log for debugging
+        let log_path = case_path.join("logs").join("snappyHexMesh.log");
+        let combined = format!("{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr));
+        let _ = std::fs::write(&log_path, &combined);
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("FOAM FATAL") || stderr.contains("--> FOAM FATAL") {
@@ -240,7 +352,7 @@ impl PipelineOrchestrator {
     fn run_check_mesh(&self, case_path: &Path) -> Result<MeshQualityMetrics, anyhow::Error> {
         info!("  Running checkMesh...");
         let output = Command::new("checkMesh")
-            .args(["-case", &case_path.to_string_lossy()])
+            .args(["-case", &case_path.to_string_lossy(), "-constant"])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -261,6 +373,74 @@ impl PipelineOrchestrator {
         Ok(metrics)
     }
 
+    /// Remove stale time directories (keep 0/ for initial fields).
+    /// Preserves directories containing a polyMesh (snappyHexMesh may write the
+    /// refined mesh to a time directory rather than constant/polyMesh).
+    fn clean_time_dirs(&self, case_path: &Path) {
+        if let Ok(entries) = std::fs::read_dir(case_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if let Ok(time) = name.parse::<f64>() {
+                            if time > 0.0 && !path.join("polyMesh").exists() {
+                                let _ = std::fs::remove_dir_all(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Clean postProcessing from previous runs
+        let pp = case_path.join("postProcessing");
+        if pp.exists() {
+            let _ = std::fs::remove_dir_all(&pp);
+        }
+    }
+
+    /// Remove ALL time directories (except 0/) before re-meshing.
+    /// Meshing is always restarted from blockMesh, so old mesh time dirs are stale.
+    fn remove_all_time_dirs(&self, case_path: &Path) {
+        if let Ok(entries) = std::fs::read_dir(case_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if let Ok(time) = name.parse::<f64>() {
+                            if time > 0.0 {
+                                let _ = std::fs::remove_dir_all(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// After snappyHexMesh, ensure the refined mesh is in constant/polyMesh.
+    /// Some OpenFOAM versions write to a time directory even with -overwrite.
+    fn ensure_mesh_in_constant(&self, case_path: &Path) {
+        if case_path.join("constant").join("polyMesh").join("points").exists() {
+            return; // mesh already in constant
+        }
+        // Find latest time directory with a polyMesh and copy to constant/
+        let latest = self.find_latest_mesh_time(case_path);
+        if let Some(t) = latest {
+            let src = case_path.join(&t).join("polyMesh");
+            let dst = case_path.join("constant").join("polyMesh");
+            if src.exists() && !dst.join("points").exists() {
+                let _ = std::fs::create_dir_all(&dst);
+                if let Ok(entries) = std::fs::read_dir(&src) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let _ = std::fs::copy(entry.path(), dst.join(&name));
+                    }
+                }
+                info!("  Copied mesh from time {} to constant/polyMesh", t);
+            }
+        }
+    }
+
     fn setup_solver(&self, case_path: &Path, solver_name: &str) -> Result<(), anyhow::Error> {
         info!("  Setting up solver configuration...");
 
@@ -272,12 +452,37 @@ application     {};
 startFrom       latestTime;
 startTime       0;
 stopAt          endTime;
-endTime         3000;
+endTime         1000;
 deltaT          1;
 writeControl    timeStep;
-writeInterval   500;
+writeInterval   100;
 purgeWrite      3;
 writeFormat     binary;
+writePrecision  8;
+writeCompression on;
+timeFormat      general;
+timePrecision   6;
+runTimeModifiable true;
+functions
+{{
+    forceCoeffs
+    {{
+        type            forceCoeffs;
+        libs            (forces);
+        patches         (blade);
+        rho             rhoInf;
+        rhoInf          1.225;
+        CofR            (0 0 0);
+        liftDir         (0 0 1);
+        dragDir         (1 0 0);
+        pitchAxis       (0 1 0);
+        magUInf         9.15;
+        lRef            0.3;
+        Aref            0.3;
+        writeControl    timeStep;
+        writeInterval   10;
+    }}
+}}
 "#, solver_name);
 
         let system_dir = case_path.join("system");
@@ -287,7 +492,7 @@ writeFormat     binary;
         // Write fvSchemes (default second-order)
         let fv_schemes = r#"FoamFile { version 2.0; format binary; class dictionary; object fvSchemes; }
 
-ddtSchemes { default         Euler; }
+ddtSchemes { default         steadyState; }
 gradSchemes { default         Gauss linear; }
 divSchemes {
     default         none;
@@ -299,6 +504,10 @@ divSchemes {
 laplacianSchemes { default Gauss linear corrected; }
 interpolationSchemes { default linear; }
 snGradSchemes { default corrected; }
+wallDist
+{
+    method meshWave;
+}
 "#;
         std::fs::write(system_dir.join("fvSchemes"), fv_schemes)?;
 
@@ -320,28 +529,35 @@ solvers
         smoother        symGaussSeidel;
         tolerance       1e-6;
         relTol          0;
-        nSweeps         1;
+        nSweeps         3;
     }}
     k
     {{
         $U;
         tolerance       1e-6;
         relTol          0;
+        nSweeps         3;
     }}
     omega
     {{
         $U;
         tolerance       1e-6;
         relTol          0;
+        nSweeps         3;
     }}
 }}
 
-PIMPLE
+SIMPLE
 {{
-    nOuterCorrectors 1;
-    nCorrectors     2;
-    nNonOrthogonalCorrectors 0;
-    pRefCell        0;
+    nNonOrthogonalCorrectors 2;
+    residualControl
+    {{
+        U              1e-4;
+        p              1e-4;
+        k              1e-4;
+        omega          1e-4;
+    }}
+    pRefPoint       (0 0 0);
     pRefValue       0;
 }}
 
@@ -361,8 +577,164 @@ relaxationFactors
 "#);
         std::fs::write(system_dir.join("fvSolution"), fv_solution)?;
 
+        // Write constant/transportProperties
+        let constant_dir = case_path.join("constant");
+        std::fs::create_dir_all(&constant_dir)?;
+        let transport = r#"FoamFile { version 2.0; format ascii; class dictionary; object transportProperties; }
+
+phase (air);
+transportModel  Newtonian;
+nu              nu [0 2 -1 0 0 0 0] 1.5e-05;
+rho             rho [1 -3 0 0 0 0 0] 1.225;
+"#;
+        std::fs::write(constant_dir.join("transportProperties"), transport)?;
+
+        // Write constant/turbulenceProperties (kOmegaSST)
+        let turb = r#"FoamFile { version 2.0; format ascii; class dictionary; object turbulenceProperties; }
+
+simulationType  RAS;
+RAS
+{
+    RASModel        kOmegaSST;
+    turbulence      on;
+    printCoeffs     on;
+}
+"#;
+        std::fs::write(constant_dir.join("turbulenceProperties"), turb)?;
+
+        // Write initial field files (0/U, 0/p, 0/k, 0/omega, 0/nut)
+        let zero_dir = case_path.join("0");
+        std::fs::create_dir_all(&zero_dir)?;
+        let fields: Vec<(&str, &str, &str)> = vec![
+            ("U", "volVectorField", "uniform (9.15 0 0)"),
+            ("p", "volScalarField", "uniform 0"),
+            ("k", "volScalarField", "uniform 0.314"),
+            ("omega", "volScalarField", "uniform 100"),
+            ("nut", "volScalarField", "uniform 0"),
+        ];
+        for (name, class, internal) in &fields {
+            let path = zero_dir.join(name);
+            if !path.exists() {
+                let dim = match *name {
+                    "U" => "[0 1 -1 0 0 0 0]",
+                    "p" => "[0 2 -2 0 0 0 0]",
+                    "k" => "[0 2 -2 0 0 0 0]",
+                    "omega" => "[0 0 -1 0 0 0 0]",
+                    "nut" => "[0 2 -1 0 0 0 0]",
+                    _ => "[0 0 0 0 0 0 0]",
+                };
+                let bc_body = if *name == "U" {
+                    r#"blade   { type fixedValue; value uniform (0 0 0); }
+    inlet    { type fixedValue; value $internalField; }
+    outlet   { type zeroGradient; }
+    top      { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    front    { type zeroGradient; }
+    back     { type zeroGradient; }
+    ".*"     { type zeroGradient; }"#
+                } else if *name == "p" {
+                    r#"blade   { type zeroGradient; }
+    inlet    { type zeroGradient; }
+    outlet   { type fixedValue; value uniform 0; }
+    top      { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    front    { type zeroGradient; }
+    back     { type zeroGradient; }
+    ".*"     { type zeroGradient; }"#
+                } else if *name == "nut" {
+                    r#"blade   { type nutUSpaldingWallFunction; value uniform 0; }
+    inlet    { type calculated; value $internalField; }
+    outlet   { type calculated; value $internalField; }
+    top      { type calculated; value $internalField; }
+    bottom   { type calculated; value $internalField; }
+    front    { type calculated; value $internalField; }
+    back     { type calculated; value $internalField; }
+    ".*"     { type calculated; value $internalField; }"#
+                } else if *name == "k" {
+                    r#"blade   { type zeroGradient; }
+    inlet    { type fixedValue; value $internalField; }
+    outlet   { type zeroGradient; }
+    top      { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    front    { type zeroGradient; }
+    back     { type zeroGradient; }
+    ".*"     { type zeroGradient; }"#
+                } else if *name == "omega" {
+                    r#"blade   { type zeroGradient; }
+    inlet    { type fixedValue; value $internalField; }
+    outlet   { type zeroGradient; }
+    top      { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    front    { type zeroGradient; }
+    back     { type zeroGradient; }
+    ".*"     { type zeroGradient; }"#
+                } else {
+                    r#"blade   { type zeroGradient; }
+    inlet    { type zeroGradient; }
+    outlet   { type zeroGradient; }
+    top      { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    front    { type zeroGradient; }
+    back     { type zeroGradient; }
+    ".*"     { type zeroGradient; }"#
+                };
+                let content = format!(
+                    r#"FoamFile {{ version 2.0; format ascii; class {}; object {}; }}
+dimensions {};
+internalField {};
+boundaryField {{
+    {}
+}}
+"#, class, name, dim, internal, bc_body
+                );
+                std::fs::write(&path, content.as_bytes())?;
+            }
+        }
+
+        // Copy initial fields from 0/ to the latest time directory (snappyHexMesh may have written
+        // mesh to a later time that has no field files yet).
+        let latest_mesh_time = self.find_latest_mesh_time(case_path);
+        if let Some(ref t) = latest_mesh_time {
+            if t != "0" {
+                let zero_dir = case_path.join("0");
+                let target_dir = case_path.join(t);
+                for entry in std::fs::read_dir(&zero_dir)? {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    let src_path = zero_dir.join(&name);
+                    if src_path.is_file() {
+                        let dst_path = target_dir.join(&name);
+                        if dst_path.exists() {
+                            // Mesh may have changed between runs — overwrite stale fields
+                            let _ = std::fs::remove_file(&dst_path);
+                        }
+                        std::fs::copy(&src_path, &dst_path)?;
+                    }
+                }
+            }
+        }
+
         info!("  ✓ Solver configuration written");
         Ok(())
+    }
+
+    /// Find the latest time directory that contains a polyMesh (i.e. the mesh was written there).
+    fn find_latest_mesh_time(&self, case_path: &Path) -> Option<String> {
+        use std::cmp::Ordering;
+        let dirs: Vec<_> = std::fs::read_dir(case_path).ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.parse::<f64>().is_ok()) // numeric directories only
+            .filter(|n| case_path.join(n).join("polyMesh").exists())
+            .collect();
+        if dirs.is_empty() { return None; }
+        dirs.into_iter()
+            .max_by(|a, b| {
+                let a: f64 = a.parse().unwrap_or(0.0);
+                let b: f64 = b.parse().unwrap_or(0.0);
+                a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+            })
     }
 
     fn run_solver(
@@ -432,52 +804,39 @@ relaxationFactors
         }
     }
 
+    fn run_visualization(&self, case_path: &Path) -> Result<Vec<String>, anyhow::Error> {
+        let report_dir = case_path.join("report");
+        std::fs::create_dir_all(&report_dir)?;
+        match aeroflow_post::generate_visualization(case_path, &report_dir) {
+            Ok(images) => {
+                info!("  ✓ Generated {} visualization images", images.len());
+                Ok(images)
+            }
+            Err(e) => {
+                warn!("Visualization failed (non-fatal): {}", e);
+                Ok(Vec::new())
+            }
+        }
+    }
+
     fn generate_report(
         &self,
         case_path: &Path,
         case_name: &str,
+        mesh: &MeshQualityMetrics,
         forces: &ForceCoefficients,
-        solver: &SolverStats,
+        solver_stats: &SolverStats,
+        viz_images: &[String],
     ) -> Result<(), anyhow::Error> {
-        info!("  Generating report...");
-
         let report_dir = case_path.join("report");
-        let template_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
-            .parent().unwrap()
-            .join("templates");
+        std::fs::create_dir_all(&report_dir)?;
 
-        let report_gen = ReportGenerator::new(&template_dir)?;
+        let report_path = report_dir.join("index.html");
 
-        let case_meta = CaseMeta {
-            id: Uuid::nil(),
-            name: case_name.to_string(),
-            stage: Stage::Complete,
-            user_id: None,
-            workspace_root: None,
-            flow_type: None,
-            compressibility: None,
-            accuracy: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
-        let mesh_metrics = MeshQualityMetrics {
-            max_non_orthogonality: 0.0,
-            avg_non_orthogonality: 0.0,
-            max_skewness: 0.0,
-            min_determinant: 0.0,
-            max_aspect_ratio: 0.0,
-            min_volume: 0.0,
-            n_cells: 0,
-            n_failed_cells: 0,
-        };
-
-        report_gen.generate_html_report(
-            &case_meta,
-            &mesh_metrics,
-            forces,
-            solver,
+        let engine = aeroflow_report::ReportGenerator::new()?;
+        engine.generate_html_report(
+            case_name, "", "",
+            mesh, forces, solver_stats, viz_images,
             &report_dir,
         )?;
 
@@ -486,6 +845,48 @@ relaxationFactors
     }
 
     // ── Helpers ──
+
+    /// Persist pipeline results to the database (fire-and-forget on failure).
+    fn persist_to_db(
+        &self,
+        case_id: CaseId,
+        mesh: &MeshQualityMetrics,
+        forces: &ForceCoefficients,
+        solver: &SolverStats,
+    ) {
+        let db = match self.db.as_ref() {
+            Some(db) => db.clone(),
+            None => return,
+        };
+        let forces_json = serde_json::json!({
+            "cl": forces.cl, "cd": forces.cd, "cm": forces.cm,
+            "cl_std": forces.cl_std, "cd_std": forces.cd_std,
+        });
+        let mesh_json = serde_json::json!({
+            "max_non_orthogonality": mesh.max_non_orthogonality,
+            "avg_non_orthogonality": mesh.avg_non_orthogonality,
+            "max_skewness": mesh.max_skewness,
+            "min_determinant": mesh.min_determinant,
+            "max_aspect_ratio": mesh.max_aspect_ratio,
+            "min_volume": mesh.min_volume,
+            "n_cells": mesh.n_cells,
+            "n_failed_cells": mesh.n_failed_cells,
+        });
+        let solver_json = serde_json::json!({
+            "iterations": solver.iterations,
+            "wall_time_s": solver.wall_time_s,
+            "residual_p": solver.residual_p,
+            "residual_u": solver.residual_u,
+            "converged": solver.converged,
+        });
+        let status = if solver.converged { "complete" } else { "diverged" };
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let _ = handle.block_on(async {
+                db.update_case_results(case_id, status, &forces_json, &mesh_json, &solver_json).await
+            });
+        }
+    }
 
     fn transition(&mut self, case_id: CaseId, stage: Stage) {
         if let Some(meta) = self.cases.get_mut(&case_id) {
@@ -533,9 +934,24 @@ fn parse_checkmesh_output(output: &str) -> MeshQualityMetrics {
 
     let mut failed_cells = 0u64;
 
+    /// Extract the first f64 value from a string that may have trailing text.
+    fn parse_first_f64(s: &str) -> Option<f64> {
+        let s = s.trim();
+        // Find the first contiguous numeric segment (handles "4.99, 4 highly skew..." etc.)
+        let mut num = String::new();
+        for c in s.chars() {
+            if c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E' {
+                num.push(c);
+            } else if !num.is_empty() {
+                break;
+            }
+        }
+        num.parse().ok()
+    }
+
     for line in output.lines() {
         // Cells: "cells:   1847321"
-        if line.starts_with("cells:") {
+        if line.trim().starts_with("cells:") {
             if let Some(val) = line.split_whitespace().nth(1) {
                 if let Ok(n) = val.replace(',', "").parse::<u64>() {
                     metrics.n_cells = n;
@@ -543,28 +959,24 @@ fn parse_checkmesh_output(output: &str) -> MeshQualityMetrics {
             }
         }
 
-        // Non-orthogonality: "Maximum = 62.3"
+        // Non-orthogonality: "Mesh non-orthogonality Max: 54.3 average: 5.95"
         if line.contains("non-orthogonality") || line.contains("Non-orthogonality") {
-            if let Some(max_part) = line.split("Maximum = ").nth(1) {
-                if let Some(val) = max_part.split_whitespace().next() {
-                    if let Ok(v) = val.parse::<f64>() {
-                        metrics.max_non_orthogonality = metrics.max_non_orthogonality.max(v);
-                    }
+            if let Some(max_part) = line.split("Max: ").nth(1).or_else(|| line.split("Maximum = ").nth(1)) {
+                if let Some(v) = parse_first_f64(max_part) {
+                    metrics.max_non_orthogonality = metrics.max_non_orthogonality.max(v);
                 }
             }
-            if let Some(avg_part) = line.split("average = ").nth(1) {
-                if let Some(val) = avg_part.split_whitespace().next() {
-                    if let Ok(v) = val.parse::<f64>() {
-                        metrics.avg_non_orthogonality = v;
-                    }
+            if let Some(avg_part) = line.split("average: ").nth(1).or_else(|| line.split("average = ").nth(1)) {
+                if let Some(v) = parse_first_f64(avg_part) {
+                    metrics.avg_non_orthogonality = v;
                 }
             }
         }
 
-        // Skewness: "Max skewness = 3.2"
+        // Skewness: "Max skewness = 4.9958392, 4 highly skew faces..."
         if line.contains("skewness") {
             if let Some(val) = line.split('=').nth(1) {
-                if let Ok(v) = val.trim().parse::<f64>() {
+                if let Some(v) = parse_first_f64(val) {
                     metrics.max_skewness = metrics.max_skewness.max(v);
                 }
             }
@@ -573,22 +985,22 @@ fn parse_checkmesh_output(output: &str) -> MeshQualityMetrics {
         // Determinant: "minimum = 0.12"
         if line.contains("determinant") || line.contains("Determinant") {
             if let Some(val) = line.split('=').nth(1) {
-                if let Ok(v) = val.trim().parse::<f64>() {
+                if let Some(v) = parse_first_f64(val) {
                     metrics.min_determinant = metrics.min_determinant.min(v);
                 }
             }
         }
 
-        // Aspect ratio: "Maximum aspect ratio = 87"
+        // Aspect ratio: "Max aspect ratio = 6.19 OK."
         if line.contains("aspect ratio") || line.contains("Aspect ratio") {
             if let Some(val) = line.split('=').nth(1) {
-                if let Ok(v) = val.trim().parse::<f64>() {
+                if let Some(v) = parse_first_f64(val) {
                     metrics.max_aspect_ratio = metrics.max_aspect_ratio.max(v);
                 }
             }
         }
 
-        // Failed cells: "Failed 1 mesh checks"
+        // Failed checks: "Failed 1 mesh checks."
         if line.contains("Failed") && line.contains("mesh checks") {
             if let Some(val) = line.split_whitespace().nth(1) {
                 if let Ok(n) = val.parse::<u64>() {
@@ -597,10 +1009,10 @@ fn parse_checkmesh_output(output: &str) -> MeshQualityMetrics {
             }
         }
 
-        // Min volume: "Min volume = 2.4e-11"
+        // Min volume: "Min volume = 2.4e-11. Max volume = ..."
         if line.contains("Min volume") || line.contains("minimum volume") {
             if let Some(val) = line.split('=').nth(1) {
-                if let Ok(v) = val.trim().parse::<f64>() {
+                if let Some(v) = parse_first_f64(val) {
                     metrics.min_volume = v;
                 }
             }

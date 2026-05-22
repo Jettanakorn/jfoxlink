@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+helm/
+*.md
+*.ps1
+*.sh
+gen_stl.*

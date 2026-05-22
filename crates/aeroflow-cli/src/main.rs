@@ -42,8 +42,8 @@ enum Commands {
     Status,
     /// Generate report for a case
     Report {
-        /// Case ID or name
-        case: String,
+        /// Case directory
+        case: PathBuf,
     },
     /// Watch a directory for new STL files
     Watch {
@@ -96,7 +96,7 @@ enum SkillsAction {
     /// Show skill details
     Show { name: String },
     /// Trigger optimization for a skill
-    Optimize { name: String, #[arg(long, default_value = "10")] trials: u32 },
+    Optimize { name: String, #[arg(long, default_value = "10")] trials: u32, #[arg(long)] case_path: Option<PathBuf> },
     /// Export a skill
     Export { name: String, #[arg(long)] format: Option<String> },
     /// Import a skill

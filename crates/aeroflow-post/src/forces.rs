@@ -16,13 +16,13 @@ impl ForceExtractor {
         (lift_dir, drag_dir)
     }
 
-    /// Extract force coefficients from postProcessing/forceCoeffs/0/forceCoeffs.dat
+    /// Extract force coefficients from postProcessing/forceCoeffs/0/coefficient.dat
     pub fn extract_from_case(case_path: &str) -> Result<ForceCoefficients, anyhow::Error> {
         let path = Path::new(case_path)
             .join("postProcessing")
             .join("forceCoeffs")
             .join("0")
-            .join("forceCoeffs.dat");
+            .join("coefficient.dat");
 
         if !path.exists() {
             anyhow::bail!("Force coefficients file not found: {:?}", path);
@@ -38,13 +38,13 @@ impl ForceExtractor {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            // Format: time Cm Cd Cl Cl(f) Cd(f) ...
+            // Format: Time Cd Cd(f) Cd(r) Cl Cl(f) Cl(r) CmPitch CmRoll CmYaw Cs Cs(f) Cs(r)
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 4 {
+            if parts.len() >= 8 {
                 if let (Ok(cd), Ok(cl), Ok(cm)) = (
-                    parts.get(2).unwrap_or(&"0").parse::<f64>(),
-                    parts.get(3).unwrap_or(&"0").parse::<f64>(),
                     parts.get(1).unwrap_or(&"0").parse::<f64>(),
+                    parts.get(4).unwrap_or(&"0").parse::<f64>(),
+                    parts.get(7).unwrap_or(&"0").parse::<f64>(),
                 ) {
                     // Skip initial transient (first 10% of data points)
                     // Filter unphysical values

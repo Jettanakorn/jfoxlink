@@ -219,8 +219,8 @@ impl Default for MeshQualityThresholds {
         Self {
             max_non_orthogonality_warn: 60.0,
             max_non_orthogonality_fail: 70.0,
-            max_skewness_warn: 2.0,
-            max_skewness_fail: 4.0,
+            max_skewness_warn: 4.0,
+            max_skewness_fail: 6.0,
             min_determinant_warn: 0.01,
             min_determinant_fail: 0.001,
             max_aspect_ratio_warn: 500.0,

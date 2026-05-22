@@ -51,11 +51,13 @@ pub async fn execute(case_path: &Path, trials: u32) -> anyhow::Result<()> {
     info!("Registered case {} with id {}", case_name, case_id);
 
     // Run pipeline (synchronous, uses std::process::Command for OpenFOAM tools)
-    match orchestrator.run_pipeline(case_id, case_path, solver, None) {
-        Ok(stage) => {
+    match orchestrator.run_pipeline(case_id, case_path, solver, None, None) {
+        Ok(result) => {
             println!("\n✓ Pipeline complete for '{}'", case_name);
-            println!("  Final stage: {:?}", stage);
+            println!("  Final stage: {:?}", result.stage);
             println!("  Report: {:?}/report/index.html", case_path);
+            println!("  Cd={:.4}, Cl={:.4}, {} iters",
+                result.forces.cd, result.forces.cl, result.solver_stats.iterations);
         }
         Err(e) => {
             println!("\n✗ Pipeline failed for '{}': {}", case_name, e);

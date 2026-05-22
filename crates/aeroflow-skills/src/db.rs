@@ -251,6 +251,35 @@ impl SkillsDb {
         Ok(row.get("id"))
     }
 
+    pub async fn update_case_results(
+        &self,
+        case_id: Uuid,
+        status: &str,
+        forces: &serde_json::Value,
+        mesh_stats: &serde_json::Value,
+        solver_stats: &serde_json::Value,
+    ) -> Result<(), anyhow::Error> {
+        sqlx::query(
+            r#"
+            UPDATE cases
+            SET status = $1,
+                results = $2,
+                mesh_stats = $3,
+                resource_usage = $4,
+                completed_at = NOW()
+            WHERE id = $5
+            "#
+        )
+        .bind(status)
+        .bind(forces)
+        .bind(mesh_stats)
+        .bind(solver_stats)
+        .bind(case_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn list_cases(&self, limit: i64) -> Result<Vec<CaseSummary>, anyhow::Error> {
         let rows = sqlx::query(
             r#"

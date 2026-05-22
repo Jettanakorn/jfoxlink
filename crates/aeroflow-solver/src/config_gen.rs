@@ -64,6 +64,31 @@ deltaT          1;
 writeControl    timeStep;
 writeInterval   500;
 purgeWrite      3;
+writePrecision  8;
+writeCompression on;
+timeFormat      general;
+timePrecision   6;
+runTimeModifiable true;
+functions
+{{
+    forceCoeffs
+    {{
+        type            forceCoeffs;
+        libs            (forces);
+        patches         (blade);
+        rho             rhoInf;
+        rhoInf          1.225;
+        CofR            (0 0 0);
+        liftDir         (0 0 1);
+        dragDir         (1 0 0);
+        pitchAxis       (0 1 0);
+        magUInf         9.15;
+        lRef            0.3;
+        Aref            0.3;
+        writeControl    timeStep;
+        writeInterval   10;
+    }}
+}}
 "#, format, solver, iterations)
     }
 }

@@ -147,6 +147,7 @@ pub enum Stage {
     Converged,
     Diverged,
     PostProcessing,
+    Visualization,
     Report,
     Complete,
     Failed,
@@ -166,6 +167,7 @@ impl Stage {
             Stage::Converged => "CONVERGED",
             Stage::Diverged => "DIVERGED",
             Stage::PostProcessing => "POST-PROC",
+            Stage::Visualization => "VISUALIZATION",
             Stage::Report => "REPORT",
             Stage::Complete => "COMPLETE",
             Stage::Failed => "FAILED",
@@ -271,6 +273,43 @@ pub struct SolverStats {
     pub residual_p: f64,
     pub residual_u: f64,
     pub converged: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrialOutput {
+    pub cd: f64,
+    pub cl: f64,
+    pub converged: bool,
+    pub runtime_s: f64,
+    pub n_cells: u64,
+    pub n_failed_cells: u64,
+}
+
+impl TrialOutput {
+    pub fn failed() -> Self {
+        Self { cd: 1.0, cl: 0.0, converged: false, runtime_s: 0.0, n_cells: 0, n_failed_cells: u64::MAX }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MeshParams {
+    pub surface_min_level: u32,
+    pub surface_max_level: u32,
+    pub region_min_level: u32,
+    pub region_max_level: u32,
+    pub n_cells_between_levels: u32,
+}
+
+impl Default for MeshParams {
+    fn default() -> Self {
+        Self {
+            surface_min_level: 3,
+            surface_max_level: 4,
+            region_min_level: 1,
+            region_max_level: 1,
+            n_cells_between_levels: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -385,11 +385,11 @@ async fn run_case(
         .join("cases")
         .join(id.to_string());
 
-    let case_id = orch.register_case(&id.to_string());
-    match orch.run_pipeline(case_id, &case_dir, "simpleFoam", None) {
-        Ok(stage) => Ok(Json(ApiResponse {
+    let case_id = orch.register_case_with_id(&id.to_string(), id);
+    match orch.run_pipeline(case_id, &case_dir, "simpleFoam", None, None) {
+        Ok(result) => Ok(Json(ApiResponse {
             success: true,
-            data: serde_json::json!({ "case_id": id, "status": format!("{:?}", stage) }),
+            data: serde_json::json!({ "case_id": id, "status": format!("{:?}", result.stage) }),
         })),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -470,7 +470,7 @@ impl WebApi {
         let orchestrator = Arc::new(Mutex::new(PipelineOrchestrator::new(
             data_dir.clone(),
             settings.settings.max_concurrent_cases,
-        )));
+        ).with_db(db.clone())));
 
         let state = AppState {
             db,

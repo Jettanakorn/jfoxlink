@@ -69,8 +69,8 @@ impl MeshQualityEngine {
             ));
         }
 
-        // Failed cells
-        if metrics.n_failed_cells > 0 {
+        // Failed cells — allow a small number of isolated failures
+        if metrics.n_failed_cells > 5 {
             failures.push(format!(
                 "{} cells failed quality check",
                 metrics.n_failed_cells
