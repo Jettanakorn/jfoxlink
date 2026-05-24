@@ -636,9 +636,9 @@ function loadStl(url, caseId) {
     const cz = (box.max.z + box.min.z) / 2;
     planeWidth = maxDim * 0.6;
     planeHeight = maxDim * 0.4;
-    const dist = maxDim * 2.5;
+    const planeDist = maxDim * 2.5;
     // Get saved position from inputs if available, else auto-position upstream
-    const sx = parseFloat(document.getElementById('spPosX').value) || (cx - dist);
+    const sx = parseFloat(document.getElementById('spPosX').value) || (cx - planeDist);
     const sy = parseFloat(document.getElementById('spPosY').value) || cy;
     const sz = parseFloat(document.getElementById('spPosZ').value) || cz;
     const sr = {
