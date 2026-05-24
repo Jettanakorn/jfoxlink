@@ -89,7 +89,7 @@ enum Commands {
     Tui,
     /// Launch 3D web workspace (opens browser UI)
     Web {
-        #[arg(default_value = "8080")]
+        #[arg(default_value = "9090")]
         port: u16,
     },
 }
