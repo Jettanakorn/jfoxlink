@@ -250,7 +250,7 @@ impl FileWatcher {
             let case_id = rt_handle.block_on(db.create_case(
                 &case_name,
                 None,
-                geometry_id,
+                Some(geometry_id),
                 solver,
                 "External",
                 &case_dir.to_string_lossy(),

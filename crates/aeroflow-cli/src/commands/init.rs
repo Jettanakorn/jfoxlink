@@ -155,7 +155,7 @@ pub async fn execute(name: Option<String>) -> anyhow::Result<()> {
         let case_id = db.create_case(
             &case_name,
             None,
-            geometry_id,
+            Some(geometry_id),
             solver,
             flow_type,
             &case_path_str,

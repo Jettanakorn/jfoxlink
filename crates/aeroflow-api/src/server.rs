@@ -108,7 +108,7 @@ struct Pagination {
 #[derive(Debug, Deserialize)]
 struct CreateCaseRequest {
     name: String,
-    geometry_id: uuid::Uuid,
+    geometry_id: Option<uuid::Uuid>,
     solver: String,
     flow_type: String,
 }
@@ -502,7 +502,7 @@ async fn create_case(
     let manifest = serde_json::json!({
         "name": req.name,
         "case_id": case_id.to_string(),
-        "geometry_id": req.geometry_id.to_string(),
+        "geometry_id": req.geometry_id.map(|id| id.to_string()),
         "solver": req.solver,
         "flow_type": req.flow_type,
         "created_at": Utc::now().to_rfc3339(),

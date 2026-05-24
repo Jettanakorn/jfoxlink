@@ -228,7 +228,7 @@ impl SkillsDb {
         &self,
         name: &str,
         user_id: Option<Uuid>,
-        geometry_id: Uuid,
+        geometry_id: Option<Uuid>,
         solver: &str,
         flow_type: &str,
         case_path: &str,

@@ -668,7 +668,7 @@ async function createProject() {
   const flowType = document.getElementById('newProjectFlowType').value;
   if (!name) { showToast('Project name required', 'error'); return; }
   try {
-    const result = await API.createCase({ name, solver, flow_type: flowType, geometry_id: '00000000-0000-0000-0000-000000000000' });
+    const result = await API.createCase({ name, solver, flow_type: flowType });
     closeModal();
     showToast('Project "' + name + '" created', 'success');
     await loadProjectList();
