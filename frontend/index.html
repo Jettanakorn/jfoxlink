@@ -223,6 +223,57 @@ a:hover{text-decoration:underline}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{border-color:var(--green)}
 .toast.error{border-color:var(--red)}
+
+/* Viewport Toolbar */
+.vtb{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:4px;
+  padding:4px 8px;
+  background:rgba(17,24,32,0.9);backdrop-filter:blur(12px);
+  border:1px solid var(--border);border-radius:10px;z-index:20;pointer-events:auto;
+  font-size:13px;white-space:nowrap;
+}
+.vtb-g{display:flex;align-items:center;gap:2px}
+.vtb-g+.vtb-g{margin-left:4px;padding-left:4px;border-left:1px solid var(--border)}
+.vtb-b{
+  width:30px;height:30px;border:none;background:transparent;
+  color:var(--text2);border-radius:5px;cursor:pointer;
+  font-size:13px;line-height:1;transition:all var(--transition);
+  display:flex;align-items:center;justify-content:center;
+}
+.vtb-b:hover{background:var(--surface2);color:var(--text)}
+.vtb-b.on{background:rgba(88,166,255,0.15);color:var(--accent)}
+.vtb-b.active{background:rgba(88,166,255,0.2);color:var(--accent)}
+
+/* Toolbar dropdown panels */
+.vtb-p{
+  position:absolute;top:54px;left:50%;transform:translateX(-50%);
+  display:none;align-items:center;gap:8px;
+  padding:8px 12px;
+  background:rgba(17,24,32,0.9);backdrop-filter:blur(12px);
+  border:1px solid var(--border);border-radius:8px;z-index:19;pointer-events:auto;
+  font-size:12px;white-space:nowrap;
+}
+.vtb-p label{color:var(--text2);font-size:11px;font-weight:500}
+.vtb-p input[type=number]{
+  width:60px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);
+  background:var(--bg);color:var(--text);font-size:11px;font-family:var(--mono);
+  outline:none;
+}
+.vtb-p input[type=number]:focus{border-color:var(--accent)}
+.vtb-p input[type=range]{width:120px;accent-color:var(--accent);vertical-align:middle}
+.vtb-a{
+  padding:4px 10px;border-radius:4px;border:none;
+  background:var(--accent);color:#fff;font-size:11px;font-weight:500;cursor:pointer;
+  transition:all var(--transition);
+}
+.vtb-a:hover{background:var(--accent2)}
+.vtb-opt{
+  padding:2px 8px;border-radius:4px;border:1px solid var(--border);
+  background:transparent;color:var(--text2);font-size:11px;cursor:pointer;
+  transition:all var(--transition);
+}
+.vtb-opt.active{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,0.1)}
 </style>
 </head>
 <body>
@@ -269,6 +320,45 @@ a:hover{text-decoration:underline}
       <p>Select a project from the sidebar or create a new one to start your CFD simulation.</p>
     </div>
     <div id="threeContainer" style="display:none;width:100%;height:100%"></div>
+    <div class="vtb" id="viewportToolbar" style="display:none">
+      <div class="vtb-g">
+        <button class="vtb-b active" data-tool="select" title="Translate">✥</button>
+        <button class="vtb-b" data-tool="rotate" title="Rotate">↻</button>
+        <button class="vtb-b" data-tool="scale" title="Scale">⇔</button>
+      </div>
+      <div class="vtb-g">
+        <button class="vtb-b" data-tool="flow" title="Flow Direction">⇶</button>
+      </div>
+      <div class="vtb-g">
+        <button class="vtb-b" id="btnSlice" title="Slice Plane">◫</button>
+      </div>
+      <div class="vtb-g">
+        <button class="vtb-b" data-view="front" title="Front">⌂</button>
+        <button class="vtb-b" data-view="top" title="Top">⊓</button>
+        <button class="vtb-b" data-view="side" title="Side">⊏</button>
+        <button class="vtb-b" data-view="reset" title="Fit View">⟲</button>
+      </div>
+      <div class="vtb-g">
+        <button class="vtb-b" id="btnWire" title="Toggle Wireframe">◇</button>
+        <button class="vtb-b" id="btnGrid" title="Toggle Grid">▦</button>
+      </div>
+    </div>
+    <!-- Flow Direction Panel -->
+    <div class="vtb-p" id="flowPanel">
+      <label>Flow</label>
+      <input type="number" step="0.1" id="flowX" value="1" placeholder="X">
+      <input type="number" step="0.1" id="flowY" value="0" placeholder="Y">
+      <input type="number" step="0.1" id="flowZ" value="0" placeholder="Z">
+      <button class="vtb-a" id="btnApplyFlow">Apply</button>
+    </div>
+    <!-- Slice Plane Panel -->
+    <div class="vtb-p" id="slicePanel">
+      <label>Slice</label>
+      <button class="vtb-opt active" data-axis="z">Z</button>
+      <button class="vtb-opt" data-axis="y">Y</button>
+      <button class="vtb-opt" data-axis="x">X</button>
+      <input type="range" id="slicePos" min="0" max="100" value="50">
+    </div>
     <div class="viewport-info" id="viewportInfo" style="display:none">
       <div class="card"><div class="label">Mesh Cells</div><div class="value accent" id="infoCells">—</div></div>
       <div class="card"><div class="label">Drag (Cd)</div><div class="value yellow" id="infoCd">—</div></div>
@@ -395,6 +485,7 @@ function initThree() {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.localClippingEnabled = true;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -419,6 +510,14 @@ function initThree() {
 
   is3DInitialized = true;
   animate();
+
+  // Transform controls
+  transformControls = new THREE.TransformControls(camera, renderer.domElement);
+  transformControls.addEventListener('dragging-changed', (ev) => {
+    transformDragging = ev.value;
+    controls.enabled = !ev.value;
+  });
+  scene.add(transformControls);
 }
 
 function animate() {
@@ -441,7 +540,13 @@ function loadStl(url, caseId) {
     stlMesh.geometry.dispose();
     stlMesh.material.dispose();
   }
-  if (flowArrow) { scene.remove(flowArrow); flowArrow = null; }
+  if (flowArrow) { scene.remove(flowArrow);
+    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
+    flowArrow = null;
+  }
+  if (transformControls) transformControls.detach();
+  stlSelected = false;
+  if (sliceEnabled) toggleSlice();
 
   // Fetch STL with auth headers, then parse with STLLoader
   const opts = {};
@@ -512,8 +617,17 @@ function loadStl(url, caseId) {
     scene.add(wireframe);
     stlMesh.userData.wireframe = wireframe;
 
-    // Flow direction arrow
-    addFlowArrow();
+    // Flow direction arrow (model-scaled)
+    const flowLen = Math.max(maxDim * 0.08, 1);
+    flowDir.set(1, 0, 0);
+    flowMag = flowLen;
+    addFlowArrow(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0), flowLen);
+
+    // Show toolbar
+    document.getElementById('viewportToolbar').style.display = 'flex';
+    document.getElementById('flowX').value = 1;
+    document.getElementById('flowY').value = 0;
+    document.getElementById('flowZ').value = 0;
 
     document.getElementById('loading').style.display = 'none';
   }).catch(err => {
@@ -524,6 +638,8 @@ function loadStl(url, caseId) {
 }
 
 function clearScene() {
+  if (transformControls) transformControls.detach();
+  stlSelected = false;
   if (stlMesh) {
     if (stlMesh.userData.wireframe) { scene.remove(stlMesh.userData.wireframe); }
     scene.remove(stlMesh);
@@ -531,26 +647,28 @@ function clearScene() {
     stlMesh.material.dispose();
     stlMesh = null;
   }
-  if (flowArrow) { scene.remove(flowArrow); flowArrow = null; }
+  if (flowArrow) { scene.remove(flowArrow);
+    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
+    flowArrow = null;
+  }
+  if (sliceHelper) { scene.remove(sliceHelper); sliceHelper = null; }
+  if (sliceEnabled) { toggleSlice(); }
 }
 
-function addFlowArrow() {
-  if (flowArrow) { scene.remove(flowArrow); flowArrow = null; }
-
-  const dir = new THREE.Vector3(1, 0, 0);
-  const origin = new THREE.Vector3(0, 0, 0);
-  const length = 1.2;
-  const headLength = 0.3;
-  const headWidth = 0.15;
-
-  flowArrow = new THREE.ArrowHelper(dir, origin, length, 0xf85149, headLength, headWidth);
+function addFlowArrow(origin, dir, len) {
+  if (flowArrow) {
+    scene.remove(flowArrow);
+    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
+  }
+  origin = origin || new THREE.Vector3(0, 0, 0);
+  dir = dir || new THREE.Vector3(1, 0, 0);
+  len = len || 1.2;
+  flowArrow = new THREE.ArrowHelper(dir, origin, len, 0xf85149, len * 0.25, len * 0.12);
   flowArrow.line.material.transparent = true;
   flowArrow.line.material.opacity = 0.7;
   flowArrow.cone.material.transparent = true;
   flowArrow.cone.material.opacity = 0.8;
   scene.add(flowArrow);
-
-  // Label using sprite
   const canvas = document.createElement('canvas');
   canvas.width = 128; canvas.height = 48;
   const ctx = canvas.getContext('2d');
@@ -561,10 +679,206 @@ function addFlowArrow() {
   const texture = new THREE.CanvasTexture(canvas);
   const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(spriteMat);
-  sprite.position.set(length + 0.4, 0.3, 0);
+  const tip = origin.clone().add(dir.clone().multiplyScalar(len));
+  sprite.position.copy(tip).add(dir.clone().multiplyScalar(0.3)).add(new THREE.Vector3(0, 0.3, 0));
   sprite.scale.set(0.8, 0.3, 1);
   flowArrow.userData.label = sprite;
   scene.add(sprite);
+}
+
+// ── Toolbar / 3D Interaction ──
+let activeTool = 'select';
+let transformControls, transformDragging = false;
+let stlSelected = false;
+let sliceEnabled = false, sliceAxis = 'z';
+let slicePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+let sliceHelper = null;
+let raycaster = new THREE.Raycaster();
+let mouseVec = new THREE.Vector2();
+let flowDir = new THREE.Vector3(1, 0, 0);
+let flowMag = 1;
+let wireframeVisible = true;
+
+function initToolbar() {
+  document.querySelectorAll('[data-tool]').forEach(btn => {
+    btn.addEventListener('click', () => setActiveTool(btn.dataset.tool));
+  });
+  document.querySelectorAll('[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => setViewPreset(btn.dataset.view));
+  });
+  document.getElementById('btnWire').addEventListener('click', toggleWire);
+  document.getElementById('btnGrid').addEventListener('click', toggleGrid);
+  document.getElementById('btnSlice').addEventListener('click', toggleSlice);
+  ['flowX','flowY','flowZ'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateFlowFromInputs);
+  });
+  document.getElementById('btnApplyFlow').addEventListener('click', applyFlow);
+  document.querySelectorAll('#slicePanel [data-axis]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#slicePanel [data-axis]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      sliceAxis = btn.dataset.axis;
+      updateSlice();
+    });
+  });
+  document.getElementById('slicePos').addEventListener('input', updateSlice);
+  if (renderer) renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+}
+
+function setActiveTool(tool) {
+  activeTool = tool;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+  document.getElementById('flowPanel').style.display = tool === 'flow' ? 'flex' : 'none';
+  if (!transformControls || !stlMesh) return;
+  if (tool === 'flow') { transformControls.detach(); return; }
+  if (stlSelected) {
+    const modes = { select: 'translate', rotate: 'rotate', scale: 'scale' };
+    transformControls.setMode(modes[tool] || 'translate');
+    transformControls.attach(stlMesh);
+  } else transformControls.detach();
+}
+
+// ── Raycasting / Selection ──
+function onCanvasPointerDown(e) {
+  if (transformDragging || !stlMesh || !renderer) return;
+  if (activeTool === 'flow') { placeFlowOrigin(e); return; }
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseVec, camera);
+  const hits = raycaster.intersectObject(stlMesh);
+  if (hits.length > 0) {
+    stlSelected = true;
+    const modes = { select: 'translate', rotate: 'rotate', scale: 'scale' };
+    transformControls.setMode(modes[activeTool] || 'translate');
+    transformControls.attach(stlMesh);
+  } else {
+    stlSelected = false;
+    transformControls.detach();
+  }
+}
+
+function placeFlowOrigin(e) {
+  if (!stlMesh || !renderer) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseVec, camera);
+  const hits = raycaster.intersectObject(stlMesh);
+  if (hits.length > 0) {
+    const pt = hits[0].point;
+    addFlowArrow(pt, flowDir.clone().normalize(), flowMag);
+  }
+}
+
+// ── Flow Direction ──
+function updateFlowFromInputs() {
+  const x = parseFloat(document.getElementById('flowX').value) || 0;
+  const y = parseFloat(document.getElementById('flowY').value) || 0;
+  const z = parseFloat(document.getElementById('flowZ').value) || 0;
+  flowDir.set(x, y, z);
+  flowMag = flowDir.length();
+  if (flowMag < 0.001) { flowDir.set(1, 0, 0); flowMag = 1; }
+  const origin = flowArrow ? flowArrow.position.clone() : new THREE.Vector3(0, 0, 0);
+  addFlowArrow(origin, flowDir.clone().normalize(), flowMag);
+}
+
+function applyFlow() {
+  if (!currentCase) return;
+  API.updateCase(currentCase.id, {
+    flow_direction: {
+      x: parseFloat(document.getElementById('flowX').value) || 1,
+      y: parseFloat(document.getElementById('flowY').value) || 0,
+      z: parseFloat(document.getElementById('flowZ').value) || 0,
+    }
+  }).then(() => showToast('Flow direction saved', 'success'))
+    .catch(e => showToast(e.message, 'error'));
+}
+
+// ── Slice Plane ──
+function toggleSlice() {
+  sliceEnabled = !sliceEnabled;
+  document.getElementById('btnSlice').classList.toggle('on', sliceEnabled);
+  document.getElementById('slicePanel').style.display = sliceEnabled ? 'flex' : 'none';
+  if (!stlMesh) return;
+  if (sliceEnabled) updateSlice();
+  else disableSlice();
+}
+
+function disableSlice() {
+  if (!stlMesh) return;
+  stlMesh.material.clippingPlanes = [];
+  stlMesh.material.needsUpdate = true;
+  if (sliceHelper) { scene.remove(sliceHelper); sliceHelper = null; }
+}
+
+function updateSlice() {
+  if (!sliceEnabled || !stlMesh) return;
+  stlMesh.geometry.computeBoundingBox();
+  const box = stlMesh.geometry.boundingBox;
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const normals = { x: new THREE.Vector3(1,0,0), y: new THREE.Vector3(0,1,0), z: new THREE.Vector3(0,0,1) };
+  const t = parseFloat(document.getElementById('slicePos').value) / 100;
+  const min = box.min[sliceAxis];
+  const max = box.max[sliceAxis];
+  const pos = min + (max - min) * t;
+  slicePlane.normal.copy(normals[sliceAxis]);
+  slicePlane.constant = pos;
+  stlMesh.material.clippingPlanes = [slicePlane];
+  stlMesh.material.side = THREE.DoubleSide;
+  stlMesh.material.needsUpdate = true;
+  if (sliceHelper) scene.remove(sliceHelper);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  sliceHelper = new THREE.PlaneHelper(slicePlane, maxDim * 1.2, 0xff6644);
+  scene.add(sliceHelper);
+}
+
+// ── View Presets ──
+function setViewPreset(view) {
+  if (!stlMesh) return;
+  stlMesh.geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  stlMesh.geometry.boundingBox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const dist = Math.max(maxDim * 2.5, 5);
+  const views = {
+    front:  new THREE.Vector3(0, 0, dist),
+    back:   new THREE.Vector3(0, 0, -dist),
+    top:    new THREE.Vector3(0, dist, 0),
+    bottom: new THREE.Vector3(0, -dist, 0),
+    side:   new THREE.Vector3(dist, 0, 0),
+  };
+  if (view === 'reset') {
+    const d = Math.max(maxDim * 1.8, 5);
+    camera.position.set(d * 0.8, d * 0.6, d);
+    camera.far = Math.max(d * 4, 1000);
+    camera.updateProjectionMatrix();
+    controls.target.set(0, 0, 0);
+    controls.maxDistance = Math.max(d * 3, 50);
+    controls.update();
+    return;
+  }
+  const pos = views[view];
+  if (!pos) return;
+  camera.position.copy(pos);
+  camera.far = Math.max(dist * 4, 1000);
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+// ── Viewport Toggles ──
+function toggleWire() {
+  if (!stlMesh || !stlMesh.userData.wireframe) return;
+  wireframeVisible = !wireframeVisible;
+  stlMesh.userData.wireframe.visible = wireframeVisible;
+  document.getElementById('btnWire').classList.toggle('on', wireframeVisible);
+}
+
+function toggleGrid() {
+  gridHelper.visible = !gridHelper.visible;
+  document.getElementById('btnGrid').classList.toggle('on', gridHelper.visible);
 }
 
 // ── State ──
@@ -659,7 +973,7 @@ async function selectCase(c) {
   const hasStl = detail.stl_files ? detail.stl_files.length > 0 : false;
   container.style.display = 'block';
   if (hasStl) loadStl(API.stlUrl(c.id), c.id);
-  else clearScene();
+  else { clearScene(); document.getElementById('viewportToolbar').style.display = 'none'; }
 
   // Update info
   const info = document.getElementById('viewportInfo');
@@ -824,6 +1138,7 @@ async function createProject() {
 async function init() {
   await API.login();
   await loadProjectList();
+  initToolbar();
   document.getElementById('loading').style.display = 'none';
   if (cases.length > 0) selectCase(cases[0]);
 }
@@ -845,5 +1160,6 @@ init();
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
 </body>
 </html>
