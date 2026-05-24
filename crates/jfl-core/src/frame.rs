@@ -16,7 +16,7 @@ pub enum JflError {
 }
 
 pub const JFL_STX: u8 = 0xFD;
-pub const JFL_HEADER_LEN: usize = 19;
+pub const JFL_HEADER_LEN: usize = 24;
 pub const JFL_GCM_TAG_LEN: usize = 16;
 pub const JFL_HMAC_LEN: usize = 32;
 /// Bit 0x01 = MAVLINK_IFLAG_SIGNED, Bit 0x02 = JFOX_CRYPTO_ACTIVE
@@ -32,7 +32,7 @@ pub struct JflFrame<'a> {
     pub compid: u8,
     pub msgid: [u8; 3],
     pub jfl_version: u8,
-    pub nonce: [u8; 8],
+    pub nonce: [u8; 12],
     pub channel_flags: u8,
     pub encrypted_payload: &'a [u8],
     pub gcm_tag: &'a [u8; JFL_GCM_TAG_LEN],
@@ -59,8 +59,8 @@ impl<'a> JflFrame<'a> {
             stx: raw[0], len: raw[1], incompat_flags: raw[2], compat_flags: raw[3],
             seq: raw[4], sysid: raw[5], compid: raw[6],
             msgid: [raw[7], raw[8], raw[9]], jfl_version: raw[10],
-            nonce: raw[11..19].try_into().map_err(|_| JflError::LengthMismatch)?,
-            channel_flags: raw[19],
+            nonce: raw[11..23].try_into().map_err(|_| JflError::LengthMismatch)?,
+            channel_flags: raw[23],
             encrypted_payload: &raw[JFL_HEADER_LEN..JFL_HEADER_LEN + payload_len],
             gcm_tag: raw[JFL_HEADER_LEN + payload_len..][..JFL_GCM_TAG_LEN].try_into().map_err(|_| JflError::LengthMismatch)?,
             hmac: raw[raw.len() - JFL_HMAC_LEN..].try_into().map_err(|_| JflError::LengthMismatch)?,

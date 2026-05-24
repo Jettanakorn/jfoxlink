@@ -6,4 +6,3 @@ edition = "2021"
 [dependencies]
 jfl-core = { path = "../jfl-core" }
 clap = { version = "4.4", features = ["derive"] }
-mavlink = "0.12"

@@ -13,7 +13,7 @@ JFOXLink is a high-assurance secure radio protocol suite designed for mission-cr
 3. **Dual-channel redundancy**: Automatic failover with health scoring and latency-aware voting.
 4. **Modular crypto**: Feature-gated AES-GCM, ECDH, HKDF, HMAC modules supporting Suite B (P-384).
 5. **Anti-jam resilience**: FHSS (100-channel), DSSS (Barker-11), and adaptive detection.
-6. **MAVLink interop**: Transparent wrapping of MAVLink v2 payloads with cryptographic envelope.
+6. **Payload interoperability**: Transparent wrapping of optional MAVLink v2 payloads or native JFOXLink payloads with cryptographic envelope.
 
 ### Crate Dependency Graph
 
@@ -28,7 +28,7 @@ JFOXLink is a high-assurance secure radio protocol suite designed for mission-cr
     │   └─ sdr (USRP/HackRF backend for defense)
     │
     ├─ jfl-gcs (std, ground control)
-    │   ├─ decoder (PHY → Crypto → MAVLink)
+    │   ├─ decoder (PHY → Crypto → Native payload)
     │   └─ key_store (keychain/HSM interface)
     │
     └─ jfl-sim (std, simulator)
@@ -47,7 +47,7 @@ JFOXLink is a high-assurance secure radio protocol suite designed for mission-cr
 - `crypto/{aes_gcm, ecdh, hkdf, hmac, nonce}.rs` — Cryptographic operations
 - `channel/{manager, voter, failover}.rs` — Dual-channel arbitration
 - `anti_jam/{fhss, dsss, detector}.rs` — Frequency hopping and jamming detection
-- `mavlink_compat.rs` — MAVLink v2 payload wrapping
+- `mavlink_compat.rs` — Optional MAVLink v2 payload wrapper
 
 **Features**:
 - `default`: All crypto modules enabled
@@ -89,7 +89,7 @@ cargo build -p jfl-hal --release
 **Purpose**: Ground control station decoder and key provisioning client.
 
 **Modules**:
-- `decoder.rs` — Full stack: PHY → nonce validation → AES-GCM decrypt → HMAC verify → MAVLink deserialize
+- `decoder.rs` — Full stack: PHY → nonce validation → AES-GCM decrypt → HMAC verify → native payload decode
 - `key_store.rs` — OS keychain integration (Windows DPAPI, macOS Keychain, Linux Secret Service)
 - `main.rs` — CLI/TUI interface for mission upload and live telemetry
 

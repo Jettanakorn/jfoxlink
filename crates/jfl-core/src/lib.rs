@@ -4,6 +4,7 @@
 
 pub mod frame;
 pub mod mavlink_compat;
+pub mod native;
 
 pub mod crypto {
     pub mod aes_gcm;

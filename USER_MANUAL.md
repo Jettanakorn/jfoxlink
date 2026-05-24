@@ -7,7 +7,7 @@ JFOXLink is a production-grade secure radio communication protocol suite designe
 - **Military-grade encryption** (AES-256-GCM, Suite B with P-384 ECDH)
 - **Automatic failover** between dual redundant radio channels
 - **Anti-jam resilience** with adaptive frequency hopping and spread-spectrum
-- **MAVLink compatibility** for seamless integration with autopilot systems
+- **Optional MAVLink-compatible payload support** for autopilot integration
 - **Real-time monitoring** via ground control station and link analyzer
 - **Deterministic simulation** for pre-flight validation
 
@@ -177,7 +177,7 @@ cargo run -p jfl-gcs --release -- --config config/commercial-high.toml
 ```
 
 **Key features**:
-- Real-time MAVLink telemetry display
+- Real-time telemetry display for decrypted native JFOXLink payloads
 - Automatic key provisioning UI
 - Channel health monitoring (RSSI, BER, latency)
 - Dual-channel failover status
@@ -260,7 +260,7 @@ cargo run -p jfl-sim --release -- \
 Once airborne:
 
 1. **Continuous monitoring**
-   - GCS dashboard displays live MAVLink telemetry
+   - GCS dashboard displays live native JFOXLink telemetry
    - Link Analyzer shows real-time RSSI, BER, latency
    - System auto-logs all transmitted/received frames
 

@@ -18,7 +18,7 @@ Developed by Jettanakorn Pengsiri at JFOX Aircraft Co., Ltd.
 - `crates/jfl-hal` — hardware abstraction layer.
   - embedded radio traits, FHSS/DSSS drivers, and SDR backends.
 - `crates/jfl-gcs` — ground control station client.
-  - MAVLink-compatible decoder plus key storage and provisioning support.
+  - Native secure payload decoder plus key storage and provisioning support.
 - `crates/jfl-sim` — deterministic protocol simulator.
   - RF channel/emulator and threat injection for testing.
 

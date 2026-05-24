@@ -1,6 +1,5 @@
-#![no_std]
 use heapless::Vec;
-use crate::frame::{JflError, JFL_CRYPTO_FLAG, JFL_GCM_TAG_LEN, JFL_HMAC_LEN, JFL_HEADER_LEN};
+use crate::frame::{JflError, JFL_CRYPTO_FLAG};
 
 /// MAVLink v2 compatibility shim.
 /// INVARIANT: JFOXLink wraps MAVLink payload; never mutates original MAVLink semantics.
@@ -16,8 +15,8 @@ impl MavlinkV2Compat {
     /// Constructs a JFOXLink frame around a MAVLink payload.
     pub fn build_jfl_frame(
         payload: &[u8], seq: u8, sysid: u8, compid: u8, msgid: [u8; 3],
-        nonce: [u8; 8], gcm_tag: [u8; 16], hmac: [u8; 32]
-    ) -> Result<Vec<u8, 512>, JflError> {
+        nonce: [u8; 12], gcm_tag: [u8; 16], hmac: [u8; 32]
+    ) -> Result<Vec<u8, 600>, JflError> {
         let mut buf = Vec::new();
         buf.push(0xFD).map_err(|_| JflError::BufferOverflow)?;
         buf.push(payload.len() as u8).map_err(|_| JflError::BufferOverflow)?;
