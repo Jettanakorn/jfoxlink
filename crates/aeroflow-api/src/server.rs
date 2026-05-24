@@ -126,6 +126,7 @@ struct UploadStlRequest {
 struct UpdateCaseRequest {
     name: Option<String>,
     flow_direction: Option<serde_json::Value>,
+    mrf_zone: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -412,6 +413,9 @@ async fn get_case_detail(
                     .and_then(|m| m.get("flow_direction"))
                     .cloned()
                     .unwrap_or(serde_json::json!({"x": 1, "y": 0, "z": 0})),
+                "mrf_zone": manifest.as_ref()
+                    .and_then(|m| m.get("mrf_zone"))
+                    .cloned(),
                 "created_at": c.created_at,
                 "completed_at": c.completed_at,
             });
@@ -675,6 +679,17 @@ async fn update_case(
                 {
                     if let Some(obj) = manifest.as_object_mut() {
                         obj.insert("flow_direction".into(), flow_dir.clone());
+                    }
+                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+                }
+            }
+
+            if let Some(ref mrf) = req.mrf_zone {
+                if let Ok(mut manifest) = std::fs::read_to_string(case_dir.join("manifest.json"))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                {
+                    if let Some(obj) = manifest.as_object_mut() {
+                        obj.insert("mrf_zone".into(), mrf.clone());
                     }
                     std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
                 }
