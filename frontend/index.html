@@ -180,6 +180,8 @@ a:hover{text-decoration:underline}
 .modal .btn-primary:hover{background:var(--accent2)}
 .modal .btn-secondary{background:var(--border);color:var(--text)}
 .modal .btn-secondary:hover{background:var(--surface2)}
+.file-upload{display:flex;align-items:center;gap:8px}
+.file-name{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 
 /* Loading */
 .loading{
@@ -290,9 +292,17 @@ a:hover{text-decoration:underline}
         <option value="supersonic">Supersonic</option>
       </select>
     </div>
+    <div class="param-group">
+      <label>Geometry (STL file)</label>
+      <div class="file-upload">
+        <input type="file" id="newProjectStl" accept=".stl" style="display:none" onchange="handleStlFile(event)">
+        <button class="btn-secondary" onclick="document.getElementById('newProjectStl').click()">Choose STL</button>
+        <span id="stlFileName" class="file-name">No file selected</span>
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="createProject()">Create</button>
+      <button class="btn-primary" id="btnCreateProject" onclick="createProject()">Create</button>
     </div>
   </div>
 </div>
@@ -322,6 +332,7 @@ const API = {
   async getCase(id) { const r = await this.request('GET', '/api/cases/' + id); return r.data; },
   async getCaseDetail(id) { const r = await this.request('GET', '/api/cases/' + id + '/detail'); return r.data; },
   async createCase(data) { const r = await this.request('POST', '/api/cases', data); return r.data; },
+  async uploadStl(data) { const r = await this.request('POST', '/api/cases/upload', data); return r.data; },
   async updateCase(id, data) { const r = await this.request('PUT', '/api/cases/' + id, data); return r.data; },
   async approveStage(id, data) { const r = await this.request('POST', '/api/cases/' + id + '/approve', data); return r.data; },
   async runCase(id) { const r = await this.request('POST', '/api/cases/' + id + '/run'); return r.data; },
@@ -655,25 +666,64 @@ function applyParams() {
 }
 
 // ── Project CRUD ──
+let pendingStlFile = null;
+
 function openNewProjectModal() {
   document.getElementById('newProjectModal').classList.add('open');
   document.getElementById('newProjectName').value = 'project-' + Date.now().toString(36);
+  document.getElementById('stlFileName').textContent = 'No file selected';
+  pendingStlFile = null;
 }
 function closeModal() {
   document.getElementById('newProjectModal').classList.remove('open');
+  pendingStlFile = null;
+}
+function handleStlFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  pendingStlFile = file;
+  document.getElementById('stlFileName').textContent = file.name;
 }
 async function createProject() {
   const name = document.getElementById('newProjectName').value.trim();
   const solver = document.getElementById('newProjectSolver').value;
   const flowType = document.getElementById('newProjectFlowType').value;
   if (!name) { showToast('Project name required', 'error'); return; }
+
+  const btn = document.getElementById('btnCreateProject');
+  btn.disabled = true;
+  btn.textContent = 'Uploading...';
+
   try {
-    const result = await API.createCase({ name, solver, flow_type: flowType });
-    closeModal();
-    showToast('Project "' + name + '" created', 'success');
-    await loadProjectList();
-    selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
-  } catch (e) { showToast(e.message, 'error'); }
+    if (pendingStlFile) {
+      // Read STL as base64
+      const b64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(pendingStlFile);
+      });
+      const result = await API.uploadStl({ name, solver, flow_type: flowType, stl_data: b64, stl_filename: pendingStlFile.name });
+      closeModal();
+      showToast('Project "' + name + '" created', 'success');
+      await loadProjectList();
+      selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
+    } else {
+      const result = await API.createCase({ name, solver, flow_type: flowType });
+      closeModal();
+      showToast('Project "' + name + '" created (no geometry)', 'success');
+      await loadProjectList();
+      selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }
 }
 
 // ── Init ──

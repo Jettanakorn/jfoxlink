@@ -2,7 +2,7 @@ use aeroflow_core::{
     metrics, CreateUserRequest, SettingsManager, SystemEvent, User, UserRole,
 };
 use aeroflow_pipeline::PipelineOrchestrator;
-use aeroflow_skills::{SkillsDb, UserManager};
+use aeroflow_skills::{GeometryFingerprint, SkillsDb, UserManager};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -111,6 +111,15 @@ struct CreateCaseRequest {
     geometry_id: Option<uuid::Uuid>,
     solver: String,
     flow_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UploadStlRequest {
+    name: String,
+    solver: String,
+    flow_type: String,
+    stl_data: String,
+    stl_filename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -521,6 +530,103 @@ async fn create_case(
     }))
 }
 
+async fn upload_stl(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<UploadStlRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    let claims = extract_user(&headers)?;
+    let user_id: uuid::Uuid = claims.sub.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(ApiError { success: false, error: "Invalid user ID in token".into() }))
+    })?;
+
+    use std::io::Write;
+
+    // Decode base64 STL
+    let stl_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.stl_data)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(ApiError { success: false, error: "Invalid base64 STL data".into() })))?;
+
+    let filename = req.stl_filename.unwrap_or_else(|| "geometry.stl".to_string());
+
+    // Save to temp file
+    let tmp_dir = PathBuf::from(&state.settings.workspace_dir).join("temp");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to create temp dir: {}", e) }))
+    })?;
+    let stl_path = tmp_dir.join(format!("{}_{}", &req.name, &filename));
+    std::fs::write(&stl_path, &stl_bytes).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to save STL: {}", e) }))
+    })?;
+
+    // Compute geometry fingerprint
+    let fingerprint = GeometryFingerprint::from_stl(&stl_path).map_err(|e| {
+        (StatusCode::BAD_REQUEST, Json(ApiError { success: false, error: format!("Failed to process STL: {}", e) }))
+    })?;
+
+    // Check for duplicate or insert
+    let geometry_id = match state.db.find_geometry_by_hash(&fingerprint.sha256_hash).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("DB error: {}", e) }))
+    })? {
+        Some(gid) => gid,
+        None => state.db.insert_geometry(&fingerprint).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to store geometry: {}", e) }))
+        })?,
+    };
+
+    // Create case directory structure
+    let case_dir = PathBuf::from(&state.settings.workspace_dir)
+        .join("cases")
+        .join(&req.name);
+    std::fs::create_dir_all(case_dir.join("0")).ok();
+    std::fs::create_dir_all(case_dir.join("constant/triSurface")).ok();
+    std::fs::create_dir_all(case_dir.join("system")).ok();
+    std::fs::create_dir_all(case_dir.join("logs")).ok();
+
+    // Copy STL to case directory
+    let stl_dest = case_dir.join("constant/triSurface/geometry.stl");
+    std::fs::copy(&stl_path, &stl_dest).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to copy STL: {}", e) }))
+    })?;
+
+    // Clean up temp file
+    std::fs::remove_file(&stl_path).ok();
+
+    // Create case in DB
+    let case_id = state.db.create_case(
+        &req.name,
+        Some(user_id),
+        Some(geometry_id),
+        &req.solver,
+        &req.flow_type,
+        &case_dir.to_string_lossy(),
+    ).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to create case: {}", e) }))
+    })?;
+
+    // Write manifest
+    let manifest = serde_json::json!({
+        "name": req.name,
+        "case_id": case_id.to_string(),
+        "geometry_id": geometry_id.to_string(),
+        "solver": req.solver,
+        "flow_type": req.flow_type,
+        "num_triangles": fingerprint.num_triangles,
+        "created_at": Utc::now().to_rfc3339(),
+    });
+    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+
+    let _ = state.event_tx.send(SystemEvent::info(
+        Some(case_id),
+        "api",
+        format!("Case '{}' created via STL upload", req.name),
+    ));
+
+    Ok(Json(ApiResponse {
+        success: true,
+        data: serde_json::json!({ "id": case_id, "name": req.name, "geometry_id": geometry_id, "num_triangles": fingerprint.num_triangles }),
+    }))
+}
+
 async fn update_case(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -809,6 +915,7 @@ impl WebApi {
             .route("/api/health", get(health))
             .route("/api/auth/login", post(login))
             .route("/api/auth/register", post(register))
+            .route("/api/cases/upload", post(upload_stl))
             .route("/api/cases", get(list_cases).post(create_case))
             .route("/api/cases/{id}", get(get_case).put(update_case))
             .route("/api/cases/{id}/detail", get(get_case_detail))
