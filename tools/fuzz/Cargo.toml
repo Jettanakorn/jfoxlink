@@ -1,0 +1,12 @@
+[package]
+name = "jfl-fuzz"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jfl-core = { path = "../../crates/jfl-core" }
+arbitrary = { version = "1.3", features = ["derive"] }
+
+[[bin]]
+name = "frame_fuzz"
+path = "fuzz_targets/frame_fuzz.rs"

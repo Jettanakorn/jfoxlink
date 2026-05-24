@@ -1,0 +1,7 @@
+[package]
+name = "key_provisioner"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+jfl-core = { path = "../../crates/jfl-core" }
+clap = { version = "4.4", features = ["derive"] }

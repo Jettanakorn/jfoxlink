@@ -1,0 +1,10 @@
+[profile]
+name = "DEFENSE-FULL"
+crypto_suite = "SuiteB-AES256-ECDH-P384-HKDF"
+channel_a = "SDR-FHSS"
+channel_b = "SDR-DSSS"
+anti_jam = "Adaptive+PowerCtrl+Nulling"
+cert_target = "DO-178C-DAL-B"
+replay_window = 64
+key_rotation_s = 3600
+jam_threshold_dbm = -85

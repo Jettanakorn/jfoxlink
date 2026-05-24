@@ -2,6 +2,8 @@
 
 A workspace for the JFOXLink secure radio protocol suite. This repository contains the core protocol implementation, hardware abstraction layers, ground control station software, simulation tools, and supporting utilities.
 
+Developed by Jettanakorn Pengsiri at JFOX Aircraft Co., Ltd.
+
 ## Workspace layout
 
 - `Cargo.toml` — workspace root with `resolver = "2"` and release profile optimized for size + `panic = "abort"`.

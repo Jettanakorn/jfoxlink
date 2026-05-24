@@ -1,0 +1,7 @@
+[profile]
+name = "COMMERCIAL-HIGH"
+crypto_suite = "AES-256-GCM"
+channel_a = "900MHz-FHSS"
+channel_b = "5.8GHz-OFDM"
+anti_jam = "FHSS+PowerCtrl"
+cert_target = "DO-160G"

@@ -1,0 +1,7 @@
+[profile]
+name = "COMMERCIAL-LOW"
+crypto_suite = "AES-128-GCM"
+channel_a = "915MHz-FHSS"
+channel_b = "2.4GHz-DSSS"
+anti_jam = "FHSS"
+cert_target = "None"

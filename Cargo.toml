@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/jfl-core",
+    "crates/jfl-hal",
+    "crates/jfl-gcs",
+    "crates/jfl-sim",
+    "tools/key_provisioner",
+    "tools/link_analyzer",
+    "tools/fuzz"
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

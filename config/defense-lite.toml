@@ -1,0 +1,7 @@
+[profile]
+name = "DEFENSE-LITE"
+crypto_suite = "AES-256-GCM+ECDH-P-256"
+channel_a = "900MHz-FHSS"
+channel_b = "1.4GHz-DSSS"
+anti_jam = "AJ-OFDM+FHSS"
+cert_target = "MIL-STD-461G"
