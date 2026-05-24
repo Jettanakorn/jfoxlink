@@ -1,4 +1,4 @@
-# JFOXLink 1.0 — User Manual
+# JFOXLink — User Manual
 
 ## Overview
 
