@@ -486,8 +486,8 @@ function loadStl(url, caseId) {
 
     document.getElementById('loading').style.display = 'none';
   }).catch(err => {
-    console.error('STL load error:', err);
-    // Still hide loading so UI doesn't hang
+    // Silently ignore 404 (no STL file for this case yet)
+    if (err.message !== 'STL load failed: 404') console.error('STL load error:', err);
     document.getElementById('loading').style.display = 'none';
   });
 }
@@ -612,10 +612,11 @@ async function selectCase(c) {
   try { detail = await API.getCaseDetail(c.id); } catch { detail = c; }
   currentCase = { ...c, ...detail };
 
-  // Load STL
+  // Load STL (check detail for stl_files, otherwise try anyway for new cases)
   const container = document.getElementById('threeContainer');
+  const hasStl = detail.stl_files ? detail.stl_files.length > 0 : true;
   container.style.display = 'block';
-  loadStl(API.stlUrl(c.id), c.id);
+  if (hasStl) loadStl(API.stlUrl(c.id), c.id);
 
   // Update info
   const info = document.getElementById('viewportInfo');
