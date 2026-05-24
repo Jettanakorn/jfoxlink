@@ -16,6 +16,7 @@ Thumbs.db
 workspace/
 cases/
 reports/
+report/
 temp/
 logs/
 import/
@@ -26,3 +27,5 @@ import/
 
 # Helm packages
 *.tgz
+*.exe
+*.pdb
