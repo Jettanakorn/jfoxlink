@@ -422,11 +422,8 @@ async fn get_case_detail(
 
 async fn get_case_stl(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<(StatusCode, [(String, String); 1], Vec<u8>), (StatusCode, Json<ApiError>)> {
-    let _claims = extract_user(&headers)?;
-
     let cases = state.db.list_cases(100).await.map_err(|_| {
         (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: "DB error".into() }))
     })?;
@@ -539,8 +536,6 @@ async fn upload_stl(
     let user_id: uuid::Uuid = claims.sub.parse().map_err(|_| {
         (StatusCode::BAD_REQUEST, Json(ApiError { success: false, error: "Invalid user ID in token".into() }))
     })?;
-
-    use std::io::Write;
 
     // Decode base64 STL
     let stl_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.stl_data)
