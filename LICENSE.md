@@ -1,6 +1,6 @@
 # License
 
-## JFOXLink 1.0
+## JFOXLink
 
 Copyright © 2026 Jettanakorn Pengsiri, JFOX Aircraft Co., Ltd.
 
