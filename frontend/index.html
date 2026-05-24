@@ -356,6 +356,7 @@ a:hover{text-decoration:underline}
       <div>
         <div class="sp-s"><label>Pos</label><div class="sp-r"><span>X</span><input type="number" step="0.01" id="spPosX" value="0"><span>Y</span><input type="number" step="0.01" id="spPosY" value="0"><span>Z</span><input type="number" step="0.01" id="spPosZ" value="0"></div></div>
         <div class="sp-s"><label>Rot (°)</label><div class="sp-r"><span>P</span><input type="number" step="1" id="spPitch" value="0"><span>Y</span><input type="number" step="1" id="spYaw" value="0"><span>R</span><input type="number" step="1" id="spRoll" value="0"></div></div>
+        <div class="sp-s"><label>Flow</label><div class="sp-r"><span>V</span><input type="number" step="0.1" id="spVel" value="10" style="width:62px"><span style="color:var(--text2);font-size:10px">m/s</span></div></div>
         <div class="sp-a"><button class="vtb-a" id="btnSnapPlane">Snap</button><button class="vtb-a" id="btnResetPlane">Reset</button><button class="vtb-a" id="btnSaveSetup">Save</button></div>
       </div>
     </div>
@@ -696,14 +697,16 @@ function createSetupPlane(pos, rot) {
   setupPlane.add(arrow);
   if (pos) setupPlane.position.set(pos.x, pos.y, pos.z);
   if (rot) setupPlane.rotation.set(rot.x * Math.PI / 180, rot.y * Math.PI / 180, rot.z * Math.PI / 180);
-  // Label sprite
+  // Label sprite with velocity
+  const vel = parseFloat(document.getElementById('spVel')?.value) || 10;
+  const labelTxt = vel + ' m/s →';
   const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 48;
+  canvas.width = 160; canvas.height = 48;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = 'rgba(88,166,255,0.85)';
   ctx.font = 'bold 14px Inter, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Inlet →', 64, 30);
+  ctx.fillText(labelTxt, 80, 30);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
   sprite.position.set(0, ph * 0.35, aLen + 0.3);
   sprite.scale.set(0.7, 0.25, 1);
@@ -730,7 +733,7 @@ function initToolbar() {
   document.getElementById('btnWire').addEventListener('click', toggleWire);
   document.getElementById('btnGrid').addEventListener('click', toggleGrid);
   document.getElementById('btnSlice').addEventListener('click', toggleSlice);
-  ['spPosX','spPosY','spPosZ','spPitch','spYaw','spRoll'].forEach(id => {
+  ['spPosX','spPosY','spPosZ','spPitch','spYaw','spRoll','spVel'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateSetupFromInputs);
   });
   document.getElementById('btnSnapPlane').addEventListener('click', snapPlane);
@@ -787,16 +790,34 @@ let snapMode = false;
 
 function updateSetupFromInputs() {
   if (!setupPlane) return;
-  setupPlane.position.set(
-    parseFloat(document.getElementById('spPosX').value) || 0,
-    parseFloat(document.getElementById('spPosY').value) || 0,
-    parseFloat(document.getElementById('spPosZ').value) || 0
-  );
-  setupPlane.rotation.set(
-    (parseFloat(document.getElementById('spPitch').value) || 0) * Math.PI / 180,
-    (parseFloat(document.getElementById('spYaw').value) || 0) * Math.PI / 180,
-    (parseFloat(document.getElementById('spRoll').value) || 0) * Math.PI / 180
-  );
+  const pos = {
+    x: parseFloat(document.getElementById('spPosX').value) || 0,
+    y: parseFloat(document.getElementById('spPosY').value) || 0,
+    z: parseFloat(document.getElementById('spPosZ').value) || 0,
+  };
+  const rot = {
+    x: parseFloat(document.getElementById('spPitch').value) || 0,
+    y: parseFloat(document.getElementById('spYaw').value) || 0,
+    z: parseFloat(document.getElementById('spRoll').value) || 0,
+  };
+  setupPlane.position.set(pos.x, pos.y, pos.z);
+  setupPlane.rotation.set(rot.x * Math.PI / 180, rot.y * Math.PI / 180, rot.z * Math.PI / 180);
+  // Update label sprite with velocity
+  const vel = parseFloat(document.getElementById('spVel').value) || 10;
+  const labelTxt = vel + ' m/s →';
+  setupPlane.children.forEach(child => {
+    if (child.isSprite) {
+      const c = document.createElement('canvas');
+      c.width = 160; c.height = 48;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = 'rgba(88,166,255,0.85)';
+      ctx.font = 'bold 14px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(labelTxt, 80, 30);
+      child.material.map = new THREE.CanvasTexture(c);
+      child.material.map.needsUpdate = true;
+    }
+  });
 }
 
 function saveSetup() {
@@ -811,7 +832,8 @@ function saveSetup() {
       x: parseFloat(document.getElementById('spPitch').value) || 0,
       y: parseFloat(document.getElementById('spYaw').value) || 0,
       z: parseFloat(document.getElementById('spRoll').value) || 0,
-    }
+    },
+    velocity: parseFloat(document.getElementById('spVel').value) || 10,
   };
   API.updateCase(currentCase.id, { flow_direction: data })
     .then(() => showToast('Setup plane saved', 'success'))
@@ -833,6 +855,7 @@ function resetPlane() {
   document.getElementById('spPitch').value = '0';
   document.getElementById('spYaw').value = '-90';
   document.getElementById('spRoll').value = '0';
+  document.getElementById('spVel').value = '10';
   updateSetupFromInputs();
   showToast('Plane reset to default position', 'success');
 }
@@ -1076,6 +1099,9 @@ async function selectCase(c) {
       document.getElementById('spPitch').value = fd.rotation.x ?? 0;
       document.getElementById('spYaw').value = fd.rotation.y ?? -90;
       document.getElementById('spRoll').value = fd.rotation.z ?? 0;
+    }
+    if (fd.velocity != null) {
+      document.getElementById('spVel').value = fd.velocity;
     }
   }
 
