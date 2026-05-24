@@ -487,6 +487,7 @@ function loadStl(url, caseId) {
     document.getElementById('loading').style.display = 'none';
   }).catch(err => {
     console.error('STL load error:', err);
+    // Still hide loading so UI doesn't hang
     document.getElementById('loading').style.display = 'none';
   });
 }
@@ -742,7 +743,7 @@ async function createProject() {
 
   try {
     if (pendingStlFile) {
-      // Read STL as base64
+      btn.textContent = 'Reading STL...';
       const b64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -752,17 +753,20 @@ async function createProject() {
         reader.onerror = reject;
         reader.readAsDataURL(pendingStlFile);
       });
-      const result = await API.uploadStl({ name, solver, flow_type: flowType, stl_data: b64, stl_filename: pendingStlFile.name });
+      // Keep a local ref before it gets nulled
+      const stlName = pendingStlFile.name;
+      btn.textContent = 'Sending to server...';
+      const result = await API.uploadStl({ name, solver, flow_type: flowType, stl_data: b64, stl_filename: stlName });
       closeModal();
       showToast('Project "' + name + '" created', 'success');
       await loadProjectList();
-      selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
+      await selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
     } else {
       const result = await API.createCase({ name, solver, flow_type: flowType });
       closeModal();
       showToast('Project "' + name + '" created (no geometry)', 'success');
       await loadProjectList();
-      selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
+      await selectCase({ id: result.id, name, status: 'created', solver, flow_type: flowType });
     }
   } catch (e) {
     showToast(e.message, 'error');

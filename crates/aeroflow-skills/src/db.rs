@@ -280,6 +280,15 @@ impl SkillsDb {
         Ok(())
     }
 
+    pub async fn update_case_name(&self, id: Uuid, name: &str) -> Result<(), anyhow::Error> {
+        sqlx::query("UPDATE cases SET name = $1 WHERE id = $2")
+            .bind(name)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_cases(&self, limit: i64) -> Result<Vec<CaseSummary>, anyhow::Error> {
         let rows = sqlx::query(
             r#"

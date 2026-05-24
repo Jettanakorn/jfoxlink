@@ -655,6 +655,10 @@ async fn update_case(
                     }
                     std::fs::write(new_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
                 }
+                // Update DB
+                state.db.update_case_name(id, new_name).await.map_err(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("DB update failed: {}", e) }))
+                })?;
             }
 
             Ok(Json(ApiResponse {
