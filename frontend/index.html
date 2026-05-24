@@ -632,19 +632,15 @@ function loadStl(url, caseId) {
     stlMesh.userData.wireframe = wireframe;
 
     // Create setup plane at initial position
-    const cx = (box.max.x + box.min.x) / 2;
-    const cy = (box.max.y + box.min.y) / 2;
-    const cz = (box.max.z + box.min.z) / 2;
     planeWidth = maxDim * 0.6;
     planeHeight = maxDim * 0.4;
-    const planeDist = maxDim * 2.5;
-    // Get saved position from inputs if available, else auto-position upstream
-    const sx = parseFloat(document.getElementById('spPosX').value) || (cx - planeDist);
-    const sy = parseFloat(document.getElementById('spPosY').value) || cy;
-    const sz = parseFloat(document.getElementById('spPosZ').value) || cz;
+    // Use input values if set by saved data, else 0,0,0,0,0,0
+    const sx = parseFloat(document.getElementById('spPosX').value) || 0;
+    const sy = parseFloat(document.getElementById('spPosY').value) || 0;
+    const sz = parseFloat(document.getElementById('spPosZ').value) || 0;
     const sr = {
       x: parseFloat(document.getElementById('spPitch').value) || 0,
-      y: parseFloat(document.getElementById('spYaw').value) || -90,
+      y: parseFloat(document.getElementById('spYaw').value) || 0,
       z: parseFloat(document.getElementById('spRoll').value) || 0,
     };
     createSetupPlane({ x: sx, y: sy, z: sz }, sr);
@@ -846,23 +842,15 @@ function saveSetup() {
 }
 
 function resetPlane() {
-  if (!stlMesh) return;
-  stlMesh.geometry.computeBoundingBox();
-  const box = stlMesh.geometry.boundingBox;
-  const maxDim = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
-  const cx = (box.max.x + box.min.x) / 2;
-  const cy = (box.max.y + box.min.y) / 2;
-  const cz = (box.max.z + box.min.z) / 2;
-  const dist = maxDim * 2.5;
-  document.getElementById('spPosX').value = (cx - dist).toFixed(2);
-  document.getElementById('spPosY').value = cy.toFixed(2);
-  document.getElementById('spPosZ').value = cz.toFixed(2);
+  document.getElementById('spPosX').value = '0';
+  document.getElementById('spPosY').value = '0';
+  document.getElementById('spPosZ').value = '0';
   document.getElementById('spPitch').value = '0';
-  document.getElementById('spYaw').value = '-90';
+  document.getElementById('spYaw').value = '0';
   document.getElementById('spRoll').value = '0';
   document.getElementById('spVel').value = '10';
   updateSetupFromInputs();
-  showToast('Plane reset to default position', 'success');
+  showToast('Plane reset to 0,0,0,0,0,0', 'success');
 }
 
 function snapPlane() {
@@ -1102,7 +1090,7 @@ async function selectCase(c) {
     }
     if (fd.rotation) {
       document.getElementById('spPitch').value = fd.rotation.x ?? 0;
-      document.getElementById('spYaw').value = fd.rotation.y ?? -90;
+      document.getElementById('spYaw').value = fd.rotation.y ?? 0;
       document.getElementById('spRoll').value = fd.rotation.z ?? 0;
     }
     if (fd.velocity != null) {

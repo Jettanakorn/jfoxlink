@@ -516,7 +516,7 @@ async fn create_case(
         "geometry_id": req.geometry_id.map(|id| id.to_string()),
         "solver": req.solver,
         "flow_type": req.flow_type,
-        "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": -90, "z": 0}, "velocity": 10},
+        "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0}, "velocity": 10},
         "created_at": Utc::now().to_rfc3339(),
     });
     std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
@@ -612,7 +612,7 @@ async fn upload_stl(
         "solver": req.solver,
         "flow_type": req.flow_type,
         "num_triangles": fingerprint.num_triangles,
-        "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": -90, "z": 0}, "velocity": 10},
+        "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0}, "velocity": 10},
         "created_at": Utc::now().to_rfc3339(),
     });
     std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
