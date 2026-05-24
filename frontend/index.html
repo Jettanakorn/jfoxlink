@@ -455,6 +455,12 @@ function initThree() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x080c12);
 
+  // Lazy init shared objects
+  raycaster = new THREE.Raycaster();
+  mouseVec = new THREE.Vector2();
+  slicePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  flowDir = new THREE.Vector3(1, 0, 0);
+
   // Lights
   const ambient = new THREE.AmbientLight(0x404060, 0.5);
   scene.add(ambient);
@@ -617,17 +623,17 @@ function loadStl(url, caseId) {
     scene.add(wireframe);
     stlMesh.userData.wireframe = wireframe;
 
-    // Flow direction arrow (model-scaled)
-    const flowLen = Math.max(maxDim * 0.08, 1);
-    flowDir.set(1, 0, 0);
-    flowMag = flowLen;
-    addFlowArrow(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0), flowLen);
+    // Flow direction arrow (use saved direction from inputs if available)
+    const fx = parseFloat(document.getElementById('flowX').value) || 1;
+    const fy = parseFloat(document.getElementById('flowY').value) || 0;
+    const fz = parseFloat(document.getElementById('flowZ').value) || 0;
+    flowDir.set(fx, fy, fz);
+    flowMag = Math.max(flowDir.length(), maxDim * 0.08);
+    if (flowMag < 0.01) flowMag = 1;
+    addFlowArrow(new THREE.Vector3(0, 0, 0), flowDir.clone().normalize(), flowMag);
 
     // Show toolbar
     document.getElementById('viewportToolbar').style.display = 'flex';
-    document.getElementById('flowX').value = 1;
-    document.getElementById('flowY').value = 0;
-    document.getElementById('flowZ').value = 0;
 
     document.getElementById('loading').style.display = 'none';
   }).catch(err => {
@@ -691,11 +697,7 @@ let activeTool = 'select';
 let transformControls, transformDragging = false;
 let stlSelected = false;
 let sliceEnabled = false, sliceAxis = 'z';
-let slicePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-let sliceHelper = null;
-let raycaster = new THREE.Raycaster();
-let mouseVec = new THREE.Vector2();
-let flowDir = new THREE.Vector3(1, 0, 0);
+let slicePlane, sliceHelper, raycaster, mouseVec, flowDir, flowDirVec;
 let flowMag = 1;
 let wireframeVisible = true;
 
@@ -773,6 +775,7 @@ function placeFlowOrigin(e) {
 
 // ── Flow Direction ──
 function updateFlowFromInputs() {
+  if (!flowDir) flowDir = new THREE.Vector3(1, 0, 0);
   const x = parseFloat(document.getElementById('flowX').value) || 0;
   const y = parseFloat(document.getElementById('flowY').value) || 0;
   const z = parseFloat(document.getElementById('flowZ').value) || 0;
