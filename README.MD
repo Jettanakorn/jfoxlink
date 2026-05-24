@@ -75,8 +75,55 @@ cd tools/fuzz
 cargo test
 ```
 
+## Documentation
+
+For detailed information, see:
+
+- **[DEVELOPER.md](DEVELOPER.md)** — Architecture, crate design, development workflow, testing strategy, and contribution guidelines.
+- **[USER_MANUAL.md](USER_MANUAL.md)** — Installation, configuration profiles, operational procedures, security practices, and troubleshooting.
+- **[REVISION_CONTROL.md](REVISION_CONTROL.md)** — Git Flow branching strategy, commit conventions, and collaboration workflow.
+
+## Quick Start
+
+1. **Clone and build**:
+   ```bash
+   git clone https://github.com/Jettanakorn/jfoxlink.git
+   cd jfoxlink
+   cargo build --release
+   ```
+
+2. **Run tests**:
+   ```bash
+   cargo test
+   ```
+
+3. **Try the simulator** (no hardware required):
+   ```bash
+   cargo run -p jfl-sim --release -- --scenario commercial-high
+   ```
+
+4. **Launch GCS** (requires transceiver):
+   ```bash
+   cargo run -p jfl-gcs --release -- --config config/commercial-high.toml
+   ```
+
+## Configuration Profiles
+
+Four profiles available; see `config/` directory:
+
+| Profile | Crypto | Use Case | Cert Target |
+|---------|--------|----------|------------|
+| `commercial-low` | AES-128-GCM | Hobbyist/light commercial | None |
+| `commercial-high` | AES-256-GCM | Commercial aircraft | DO-160G |
+| `defense-lite` | AES-256+ECDH-P256 | Military applications | MIL-STD-461G |
+| `defense-full` | Suite B (P-384) | High-threat environments | DO-178C-DAL-B |
+
+For details, see [USER_MANUAL.md](USER_MANUAL.md#configuration).
+
 ## Notes
 
 - `jfl-core` is designed for `no_std` environments with optional crypto features.
 - Release builds use `opt-level = "z"`, `lto = true`, and `codegen-units = 1` for compact output.
 - The workspace currently compiles successfully under the checked Rust environment.
+- Full development guidelines and architecture details are in [DEVELOPER.md](DEVELOPER.md).
+- Revision control procedures and contribution workflows are in [REVISION_CONTROL.md](REVISION_CONTROL.md).
