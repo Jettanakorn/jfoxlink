@@ -697,19 +697,20 @@ function createSetupPlane(pos, rot) {
   setupPlane.add(arrow);
   if (pos) setupPlane.position.set(pos.x, pos.y, pos.z);
   if (rot) setupPlane.rotation.set(rot.x * Math.PI / 180, rot.y * Math.PI / 180, rot.z * Math.PI / 180);
-  // Label sprite with velocity
+  // Label sprite with velocity — positioned along arrow shaft
   const vel = parseFloat(document.getElementById('spVel')?.value) || 10;
-  const labelTxt = vel + ' m/s →';
+  const labelTxt = '→ ' + vel + ' m/s';
   const canvas = document.createElement('canvas');
-  canvas.width = 160; canvas.height = 48;
+  canvas.width = 200; canvas.height = 40;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = 'rgba(88,166,255,0.85)';
-  ctx.font = 'bold 14px Inter, sans-serif';
+  ctx.font = 'bold 13px Inter, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(labelTxt, 80, 30);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(labelTxt, 100, 20);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
-  sprite.position.set(0, ph * 0.35, aLen + 0.3);
-  sprite.scale.set(0.7, 0.25, 1);
+  sprite.position.set(0, 0, aLen * 0.45);
+  sprite.scale.set(aLen * 0.5, aLen * 0.1, 1);
   setupPlane.add(sprite);
   scene.add(setupPlane);
 }
@@ -802,18 +803,22 @@ function updateSetupFromInputs() {
   };
   setupPlane.position.set(pos.x, pos.y, pos.z);
   setupPlane.rotation.set(rot.x * Math.PI / 180, rot.y * Math.PI / 180, rot.z * Math.PI / 180);
-  // Update label sprite with velocity
+  // Update label sprite with velocity — positioned along arrow shaft
   const vel = parseFloat(document.getElementById('spVel').value) || 10;
-  const labelTxt = vel + ' m/s →';
+  const labelTxt = '→ ' + vel + ' m/s';
+  const pw2 = planeWidth || 2;
+  const ph2 = planeHeight || 1.5;
+  const aLen2 = Math.min(pw2, ph2) * 0.35;
   setupPlane.children.forEach(child => {
     if (child.isSprite) {
       const c = document.createElement('canvas');
-      c.width = 160; c.height = 48;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = 'rgba(88,166,255,0.85)';
-      ctx.font = 'bold 14px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(labelTxt, 80, 30);
+      c.width = 200; c.height = 40;
+      const ctx2 = c.getContext('2d');
+      ctx2.fillStyle = 'rgba(88,166,255,0.85)';
+      ctx2.font = 'bold 13px Inter, sans-serif';
+      ctx2.textAlign = 'center';
+      ctx2.textBaseline = 'middle';
+      ctx2.fillText(labelTxt, 100, 20);
       child.material.map = new THREE.CanvasTexture(c);
       child.material.map.needsUpdate = true;
     }
