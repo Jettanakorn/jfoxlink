@@ -1,4 +1,4 @@
-# JFOXLink 1.0
+# JFOXLink
 
 A workspace for the JFOXLink secure radio protocol suite. This repository contains the core protocol implementation, hardware abstraction layers, ground control station software, simulation tools, and supporting utilities.
 
