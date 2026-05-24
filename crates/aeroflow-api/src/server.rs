@@ -125,6 +125,7 @@ struct UploadStlRequest {
 #[derive(Debug, Deserialize)]
 struct UpdateCaseRequest {
     name: Option<String>,
+    flow_direction: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -407,6 +408,10 @@ async fn get_case_detail(
                 "has_report": report_exists,
                 "viz_images": viz_images,
                 "stl_files": stl_files,
+                "flow_direction": manifest.as_ref()
+                    .and_then(|m| m.get("flow_direction"))
+                    .cloned()
+                    .unwrap_or(serde_json::json!({"x": 1, "y": 0, "z": 0})),
                 "created_at": c.created_at,
                 "completed_at": c.completed_at,
             });
@@ -511,6 +516,7 @@ async fn create_case(
         "geometry_id": req.geometry_id.map(|id| id.to_string()),
         "solver": req.solver,
         "flow_type": req.flow_type,
+        "flow_direction": {"x": 1, "y": 0, "z": 0},
         "created_at": Utc::now().to_rfc3339(),
     });
     std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
@@ -606,6 +612,7 @@ async fn upload_stl(
         "solver": req.solver,
         "flow_type": req.flow_type,
         "num_triangles": fingerprint.num_triangles,
+        "flow_direction": {"x": 1, "y": 0, "z": 0},
         "created_at": Utc::now().to_rfc3339(),
     });
     std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
@@ -659,6 +666,18 @@ async fn update_case(
                 state.db.update_case_name(id, new_name).await.map_err(|e| {
                     (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("DB update failed: {}", e) }))
                 })?;
+            }
+
+            if let Some(ref flow_dir) = req.flow_direction {
+                // Update manifest
+                if let Ok(mut manifest) = std::fs::read_to_string(case_dir.join("manifest.json"))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                {
+                    if let Some(obj) = manifest.as_object_mut() {
+                        obj.insert("flow_direction".into(), flow_dir.clone());
+                    }
+                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+                }
             }
 
             Ok(Json(ApiResponse {

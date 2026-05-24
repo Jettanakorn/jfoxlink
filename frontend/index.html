@@ -987,6 +987,19 @@ async function selectCase(c) {
   document.getElementById('infoCl').textContent = detail.forces?.cl
     ? detail.forces.cl.toFixed(4) : '—';
 
+  // Populate flow direction from saved data
+  if (detail.flow_direction) {
+    document.getElementById('flowX').value = detail.flow_direction.x ?? 1;
+    document.getElementById('flowY').value = detail.flow_direction.y ?? 0;
+    document.getElementById('flowZ').value = detail.flow_direction.z ?? 0;
+    flowDir.set(
+      parseFloat(document.getElementById('flowX').value),
+      parseFloat(document.getElementById('flowY').value),
+      parseFloat(document.getElementById('flowZ').value)
+    );
+    flowMag = flowDir.length() || 1;
+  }
+
   // Pipeline stages
   renderPipeline(detail.status || 'created');
   renderParams(detail);
