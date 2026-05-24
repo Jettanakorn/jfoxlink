@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use std::collections::VecDeque;
 use jfl_core::channel::manager::{ChannelId, ChannelState, ChannelHealth};
 
@@ -82,7 +82,7 @@ impl ChannelEmulator {
     pub fn update_environment(&mut self, distance_m: f32, weather_loss_db: f32) {
         let n = if self.id == ChannelId::A { 2.2 } else { 2.8 }; // FHSS vs DSSS path loss exponent
         let pl = 10.0 * n * distance_m.max(1.0).log10() + weather_loss_db;
-        self.base_rssi_dbm = (-50.0 - pl as i8).clamp(-95, -10);
+        self.base_rssi_dbm = (-50.0 - pl).round().clamp(-95.0, -10.0) as i8;
         
         // Random fade events
         self.fading_coeff = if self.rng.gen_bool(0.05) { 0.6 } else { 1.0 };
