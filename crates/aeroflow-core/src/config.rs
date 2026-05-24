@@ -92,6 +92,25 @@ pub struct SettingsManager {
 impl SettingsManager {
     /// Load settings from default locations
     pub fn load() -> Self {
+        // Try global config file first
+        if let Some(global) = crate::WorkspaceManager::global_settings_file() {
+            let path = std::path::Path::new(&global);
+            if path.exists() {
+                if let Ok(mgr) = Self::from_file(path) {
+                    return mgr;
+                }
+            }
+        }
+        // Then try workspace settings
+        if let Ok(ws) = std::env::var("AEROFLOW_WORKSPACE_DIR") {
+            let ws_path = crate::WorkspaceManager::settings_file(&ws);
+            let path = std::path::Path::new(&ws_path);
+            if path.exists() {
+                if let Ok(mgr) = Self::from_file(path) {
+                    return mgr;
+                }
+            }
+        }
         let mut mgr = Self {
             settings: AeroflowSettings::default(),
             config_path: None,
