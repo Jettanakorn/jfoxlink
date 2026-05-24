@@ -1,0 +1,11 @@
+# Build output
+/target/
+**/target/
+
+# Editor directories
+.vscode/
+.idea/
+
+# Temp files
+*.rs.bk
+*.swp
