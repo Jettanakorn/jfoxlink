@@ -4,7 +4,7 @@ use aeroflow_core::{
 use aeroflow_pipeline::PipelineOrchestrator;
 use aeroflow_skills::{GeometryFingerprint, SkillsDb, UserManager};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{sse::Event, Json, Sse},
     routing::{delete, get, post},
@@ -956,7 +956,7 @@ impl WebApi {
             .route("/api/health", get(health))
             .route("/api/auth/login", post(login))
             .route("/api/auth/register", post(register))
-            .route("/api/cases/upload", post(upload_stl))
+            .route("/api/upload-stl", post(upload_stl))
             .route("/api/cases", get(list_cases).post(create_case))
             .route("/api/cases/{id}", get(get_case).put(update_case).delete(delete_case))
             .route("/api/cases/{id}/detail", get(get_case_detail))
@@ -970,6 +970,7 @@ impl WebApi {
             .merge(metrics_route)
             .merge(api_routes)
             .layer(cors)
+            .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
             .with_state(state);
 
         if let Some(ref frontend) = self.frontend_path {
