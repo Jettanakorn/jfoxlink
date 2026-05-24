@@ -356,7 +356,7 @@ const API = {
 };
 
 // ── Three.js 3D Viewer ──
-let scene, camera, renderer, controls, stlMesh, flowArrow;
+let scene, camera, renderer, controls, stlMesh, flowArrow, gridHelper, axesHelper;
 let is3DInitialized = false;
 
 function initThree() {
@@ -375,19 +375,19 @@ function initThree() {
   fillLight.position.set(-3, 1, 2);
   scene.add(fillLight);
 
-  // Grid
-  const grid = new THREE.GridHelper(10, 20, 0x1e2d3d, 0x1e2d3d);
-  grid.position.y = -0.5;
-  scene.add(grid);
+  // Grid (will be resized per-model in loadStl)
+  gridHelper = new THREE.GridHelper(10, 20, 0x1e2d3d, 0x1e2d3d);
+  gridHelper.position.y = -0.5;
+  scene.add(gridHelper);
 
-  // Axes helper (subtle)
-  const axes = new THREE.AxesHelper(2);
-  axes.material.transparent = true;
-  axes.material.opacity = 0.4;
-  scene.add(axes);
+  // Axes helper (subtle, will be resized per-model)
+  axesHelper = new THREE.AxesHelper(2);
+  axesHelper.material.transparent = true;
+  axesHelper.material.opacity = 0.4;
+  scene.add(axesHelper);
 
   // Camera
-  camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 100);
+  camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.01, 100000);
   camera.position.set(4, 3, 5);
   camera.lookAt(0, 0, 0);
 
@@ -405,8 +405,8 @@ function initThree() {
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.minDistance = 1;
-  controls.maxDistance = 20;
+  controls.minDistance = 0.1;
+  controls.maxDistance = 50000;
   controls.target.set(0, 0, 0);
 
   // Resize
@@ -434,8 +434,14 @@ function loadStl(url, caseId) {
   container.style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
 
-  // Remove previous STL
-  if (stlMesh) { scene.remove(stlMesh); stlMesh.geometry.dispose(); stlMesh.material.dispose(); }
+  // Remove previous STL + wireframe + arrow
+  if (stlMesh) {
+    if (stlMesh.userData.wireframe) { scene.remove(stlMesh.userData.wireframe); }
+    scene.remove(stlMesh);
+    stlMesh.geometry.dispose();
+    stlMesh.material.dispose();
+  }
+  if (flowArrow) { scene.remove(flowArrow); flowArrow = null; }
 
   // Fetch STL with auth headers, then parse with STLLoader
   const opts = {};
@@ -473,10 +479,28 @@ function loadStl(url, caseId) {
     const size = new THREE.Vector3();
     box.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
-    const dist = maxDim * 1.8;
+    const dist = Math.max(maxDim * 1.8, 5);
     camera.position.set(dist * 0.8, dist * 0.6, dist);
+    camera.far = Math.max(dist * 4, 1000);
+    camera.updateProjectionMatrix();
     controls.target.set(0, 0, 0);
+    controls.maxDistance = Math.max(dist * 3, 50);
     controls.update();
+
+    // Scale grid & axes to model
+    const gridSize = Math.pow(10, Math.ceil(Math.log10(maxDim)));
+    scene.remove(gridHelper);
+    gridHelper.geometry.dispose();
+    gridHelper = new THREE.GridHelper(gridSize, Math.min(40, Math.round(gridSize / 5)), 0x1e2d3d, 0x1e2d3d);
+    gridHelper.position.y = -maxDim * 0.05;
+    scene.add(gridHelper);
+    scene.remove(axesHelper);
+    axesHelper.geometry.dispose();
+    const axesLen = Math.max(gridSize * 0.3, 2);
+    axesHelper = new THREE.AxesHelper(axesLen);
+    axesHelper.material.transparent = true;
+    axesHelper.material.opacity = 0.4;
+    scene.add(axesHelper);
 
     scene.add(stlMesh);
 
@@ -497,6 +521,17 @@ function loadStl(url, caseId) {
     if (err.message !== 'STL load failed: 404') console.error('STL load error:', err);
     document.getElementById('loading').style.display = 'none';
   });
+}
+
+function clearScene() {
+  if (stlMesh) {
+    if (stlMesh.userData.wireframe) { scene.remove(stlMesh.userData.wireframe); }
+    scene.remove(stlMesh);
+    stlMesh.geometry.dispose();
+    stlMesh.material.dispose();
+    stlMesh = null;
+  }
+  if (flowArrow) { scene.remove(flowArrow); flowArrow = null; }
 }
 
 function addFlowArrow() {
@@ -621,9 +656,10 @@ async function selectCase(c) {
 
   // Load STL (check detail for stl_files, otherwise try anyway for new cases)
   const container = document.getElementById('threeContainer');
-  const hasStl = detail.stl_files ? detail.stl_files.length > 0 : true;
+  const hasStl = detail.stl_files ? detail.stl_files.length > 0 : false;
   container.style.display = 'block';
   if (hasStl) loadStl(API.stlUrl(c.id), c.id);
+  else clearScene();
 
   // Update info
   const info = document.getElementById('viewportInfo');
