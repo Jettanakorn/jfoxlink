@@ -304,6 +304,18 @@ impl SkillsDb {
             completed_at: r.get("completed_at"),
         }).collect())
     }
+
+    pub async fn delete_case(&self, id: Uuid) -> Result<(), anyhow::Error> {
+        sqlx::query("DELETE FROM events WHERE case_id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM cases WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

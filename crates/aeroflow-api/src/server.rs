@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{sse::Event, Json, Sse},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use chrono::Utc;
@@ -669,6 +669,48 @@ async fn update_case(
     }
 }
 
+async fn delete_case(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    let _claims = extract_user(&headers)?;
+
+    let cases = state.db.list_cases(100).await.map_err(|_| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: "DB error".into() }))
+    })?;
+    let found = cases.into_iter().find(|c| c.id == id);
+
+    match found {
+        Some(c) => {
+            // Remove case directory
+            let case_dir = PathBuf::from(&state.settings.workspace_dir)
+                .join("cases")
+                .join(&c.name);
+            std::fs::remove_dir_all(&case_dir).ok();
+
+            state.db.delete_case(id).await.map_err(|e| {
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to delete case: {}", e) }))
+            })?;
+
+            let _ = state.event_tx.send(SystemEvent::info(
+                Some(id),
+                "api",
+                format!("Case '{}' deleted", c.name),
+            ));
+
+            Ok(Json(ApiResponse {
+                success: true,
+                data: serde_json::json!({ "id": id, "deleted": true }),
+            }))
+        }
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiError { success: false, error: "Case not found".into() }),
+        )),
+    }
+}
+
 async fn approve_stage(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -912,7 +954,7 @@ impl WebApi {
             .route("/api/auth/register", post(register))
             .route("/api/cases/upload", post(upload_stl))
             .route("/api/cases", get(list_cases).post(create_case))
-            .route("/api/cases/{id}", get(get_case).put(update_case))
+            .route("/api/cases/{id}", get(get_case).put(update_case).delete(delete_case))
             .route("/api/cases/{id}/detail", get(get_case_detail))
             .route("/api/cases/{id}/stl", get(get_case_stl))
             .route("/api/cases/{id}/run", post(run_case))

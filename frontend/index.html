@@ -82,8 +82,16 @@ a:hover{text-decoration:underline}
 .project-item .status-dot.created{background:var(--text2)}
 .project-item .status-dot.failed{background:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
-.project-item .p-name{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-item{display:flex;align-items:center;gap:6px;padding:6px 0}
+.project-item .status-dot{flex-shrink:0}
+.project-item .p-info{flex:1;min-width:0;cursor:pointer;overflow:hidden}
+.project-item .p-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-item .p-solver{font-size:10px;color:var(--text2);font-family:var(--mono)}
+.p-actions{display:none;gap:2px;flex-shrink:0}
+.project-item:hover .p-actions{display:flex}
+.p-btn{background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;padding:2px 4px;border-radius:4px;line-height:1}
+.p-btn:hover{color:var(--text);background:var(--border)}
+.p-btn-del:hover{color:var(--red);background:rgba(240,62,62,0.12)}
 
 .btn-new{
   margin:8px 12px;padding:10px;border-radius:8px;
@@ -334,6 +342,7 @@ const API = {
   async createCase(data) { const r = await this.request('POST', '/api/cases', data); return r.data; },
   async uploadStl(data) { const r = await this.request('POST', '/api/cases/upload', data); return r.data; },
   async updateCase(id, data) { const r = await this.request('PUT', '/api/cases/' + id, data); return r.data; },
+  async deleteCase(id) { const r = await this.request('DELETE', '/api/cases/' + id); return r.data; },
   async approveStage(id, data) { const r = await this.request('POST', '/api/cases/' + id + '/approve', data); return r.data; },
   async runCase(id) { const r = await this.request('POST', '/api/cases/' + id + '/run'); return r.data; },
   stlUrl(id) { return '/api/cases/' + id + '/stl'; },
@@ -412,7 +421,7 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-function loadStl(url) {
+function loadStl(url, caseId) {
   if (!is3DInitialized) initThree();
   const container = document.getElementById('threeContainer');
   container.style.display = 'block';
@@ -421,8 +430,14 @@ function loadStl(url) {
   // Remove previous STL
   if (stlMesh) { scene.remove(stlMesh); stlMesh.geometry.dispose(); stlMesh.material.dispose(); }
 
-  const loader = new THREE.STLLoader();
-  loader.load(url, (geometry) => {
+  // Fetch STL with auth headers, then parse with STLLoader
+  const opts = {};
+  if (API.token) opts.headers = { 'Authorization': 'Bearer ' + API.token };
+  fetch(url, opts).then(res => {
+    if (!res.ok) throw new Error('STL load failed: ' + res.status);
+    return res.arrayBuffer();
+  }).then(buf => {
+    const geometry = new THREE.STLLoader().parse(buf);
     geometry.computeVertexNormals();
     const material = new THREE.MeshPhysicalMaterial({
       color: 0x58a6ff,
@@ -470,7 +485,7 @@ function loadStl(url) {
     addFlowArrow();
 
     document.getElementById('loading').style.display = 'none';
-  }, undefined, (err) => {
+  }).catch(err => {
     console.error('STL load error:', err);
     document.getElementById('loading').style.display = 'none';
   });
@@ -540,16 +555,47 @@ function renderProjectList() {
     list.innerHTML = '<li style="padding:20px;text-align:center;color:var(--text2);font-size:12px">No projects yet</li>';
     return;
   }
+  let renaming = null;
   cases.forEach(c => {
     const li = document.createElement('li');
-    li.className = 'project-item' + (currentCase && currentCase.id === c.id ? ' active' : '');
-    li.onclick = () => selectCase(c);
+    const isActive = currentCase && currentCase.id === c.id;
+    li.className = 'project-item' + (isActive ? ' active' : '');
     const statusClass = c.status === 'running' ? 'running' : c.status === 'completed' ? 'completed' : c.status === 'failed' ? 'failed' : 'created';
     li.innerHTML = `<span class="status-dot ${statusClass}"></span>
-      <span class="p-name">${c.name}</span>
-      <span class="p-solver">${c.solver || '—'}</span>`;
+      <div class="p-info" onclick="selectCase(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+        <span class="p-name">${c.name}</span>
+        <span class="p-solver">${c.solver || '—'}</span>
+      </div>
+      <div class="p-actions">
+        <button class="p-btn" title="Rename" onclick="event.stopPropagation();renameProject('${c.id}','${c.name.replace(/'/g,"\\'")}')">✎</button>
+        <button class="p-btn p-btn-del" title="Delete" onclick="event.stopPropagation();deleteProject('${c.id}','${c.name.replace(/'/g,"\\'")}')">✕</button>
+      </div>`;
     list.appendChild(li);
   });
+}
+
+function renameProject(id, currentName) {
+  const newName = prompt('Rename project:', currentName);
+  if (!newName || newName === currentName) return;
+  API.updateCase(id, { name: newName }).then(() => {
+    showToast('Project renamed', 'success');
+    return loadProjectList();
+  }).catch(e => showToast(e.message, 'error'));
+}
+
+function deleteProject(id, name) {
+  if (!confirm('Delete project "' + name + '"? This cannot be undone.')) return;
+  API.deleteCase(id).then(() => {
+    showToast('Project "' + name + '" deleted', 'success');
+    if (currentCase && currentCase.id === id) {
+      currentCase = null;
+      document.getElementById('pipelineSection').style.display = 'none';
+      document.getElementById('threeContainer').style.display = 'none';
+      document.getElementById('emptyState').style.display = 'block';
+      document.getElementById('viewportInfo').style.display = 'none';
+    }
+    return loadProjectList();
+  }).catch(e => showToast(e.message, 'error'));
 }
 
 async function selectCase(c) {
@@ -568,7 +614,7 @@ async function selectCase(c) {
   // Load STL
   const container = document.getElementById('threeContainer');
   container.style.display = 'block';
-  loadStl(API.stlUrl(c.id));
+  loadStl(API.stlUrl(c.id), c.id);
 
   // Update info
   const info = document.getElementById('viewportInfo');
