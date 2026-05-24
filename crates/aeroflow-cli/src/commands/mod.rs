@@ -8,3 +8,4 @@ pub mod skills;
 pub mod status;
 pub mod user;
 pub mod watch;
+pub mod web;

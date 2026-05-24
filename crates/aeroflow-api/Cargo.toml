@@ -18,7 +18,7 @@ serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 axum.workspace = true
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 jsonwebtoken = "9"
 tokio-stream = { version = "0.1", features = ["sync"] }
 prometheus.workspace = true

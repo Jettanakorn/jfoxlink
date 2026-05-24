@@ -87,6 +87,11 @@ enum Commands {
     },
     /// Launch interactive TUI dashboard
     Tui,
+    /// Launch 3D web workspace (opens browser UI)
+    Web {
+        #[arg(default_value = "8080")]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -166,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::User { action } => commands::user::execute(action).await?,
         Commands::Settings { action } => commands::settings::execute(action).await?,
         Commands::Tui => tui::dashboard::run().await?,
+        Commands::Web { port } => commands::web::execute(*port).await?,
     }
 
     Ok(())

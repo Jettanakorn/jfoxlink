@@ -13,6 +13,7 @@ COPY Cargo.toml ./
 COPY crates/ ./crates/
 COPY db/ ./db/
 COPY templates/ ./templates/
+COPY frontend/ ./frontend/
 
 RUN cargo build --release -p aeroflow-cli 2>&1 || true
 
@@ -40,9 +41,11 @@ RUN apt-get update && apt-get install -y \
 # Copy Rust binary from builder
 COPY --from=builder /build/target/release/aeroflow /usr/local/bin/aeroflow
 COPY --from=builder /build/templates /build/templates
+COPY --from=builder /build/frontend /build/frontend
 
 # Copy visualization Python scripts (from repo root, outside builder)
 COPY scripts/viz /usr/local/share/aeroflow/scripts/viz
+COPY frontend /usr/local/share/aeroflow/frontend
 
 # Create data directories
 RUN mkdir -p /data/{cases,import,reports,skills}
