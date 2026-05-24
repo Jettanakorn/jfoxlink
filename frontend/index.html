@@ -274,6 +274,14 @@ a:hover{text-decoration:underline}
   transition:all var(--transition);
 }
 .vtb-opt.active{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,0.1)}
+
+/* Setup panel */
+.sp-s{margin-bottom:3px}
+.sp-s label{display:block;margin-bottom:1px;color:var(--text2);font-size:10px;text-transform:uppercase;letter-spacing:0.03em}
+.sp-r{display:flex;align-items:center;gap:3px}
+.sp-r span{color:var(--text2);font-size:9px;width:10px;text-align:center}
+.sp-r input[type=number]{width:50px;padding:3px 4px;font-size:10px}
+.sp-a{display:flex;gap:3px;margin-top:4px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -327,7 +335,7 @@ a:hover{text-decoration:underline}
         <button class="vtb-b" data-tool="scale" title="Scale">⇔</button>
       </div>
       <div class="vtb-g">
-        <button class="vtb-b" data-tool="flow" title="Flow Direction">⇶</button>
+        <button class="vtb-b" data-tool="setup" title="Setup Plane">⛶</button>
       </div>
       <div class="vtb-g">
         <button class="vtb-b" id="btnSlice" title="Slice Plane">◫</button>
@@ -343,13 +351,13 @@ a:hover{text-decoration:underline}
         <button class="vtb-b" id="btnGrid" title="Toggle Grid">▦</button>
       </div>
     </div>
-    <!-- Flow Direction Panel -->
-    <div class="vtb-p" id="flowPanel">
-      <label>Flow</label>
-      <input type="number" step="0.1" id="flowX" value="1" placeholder="X">
-      <input type="number" step="0.1" id="flowY" value="0" placeholder="Y">
-      <input type="number" step="0.1" id="flowZ" value="0" placeholder="Z">
-      <button class="vtb-a" id="btnApplyFlow">Apply</button>
+    <!-- Setup Plane Panel -->
+    <div class="vtb-p" id="setupPanel">
+      <div>
+        <div class="sp-s"><label>Pos</label><div class="sp-r"><span>X</span><input type="number" step="0.01" id="spPosX" value="0"><span>Y</span><input type="number" step="0.01" id="spPosY" value="0"><span>Z</span><input type="number" step="0.01" id="spPosZ" value="0"></div></div>
+        <div class="sp-s"><label>Rot (°)</label><div class="sp-r"><span>P</span><input type="number" step="1" id="spPitch" value="0"><span>Y</span><input type="number" step="1" id="spYaw" value="0"><span>R</span><input type="number" step="1" id="spRoll" value="0"></div></div>
+        <div class="sp-a"><button class="vtb-a" id="btnSnapPlane">Snap</button><button class="vtb-a" id="btnResetPlane">Reset</button><button class="vtb-a" id="btnSaveSetup">Save</button></div>
+      </div>
     </div>
     <!-- Slice Plane Panel -->
     <div class="vtb-p" id="slicePanel">
@@ -446,7 +454,7 @@ const API = {
 };
 
 // ── Three.js 3D Viewer ──
-let scene, camera, renderer, controls, stlMesh, flowArrow, gridHelper, axesHelper;
+let scene, camera, renderer, controls, stlMesh, gridHelper, axesHelper;
 let is3DInitialized = false;
 
 function initThree() {
@@ -459,7 +467,6 @@ function initThree() {
   raycaster = new THREE.Raycaster();
   mouseVec = new THREE.Vector2();
   slicePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-  flowDir = new THREE.Vector3(1, 0, 0);
 
   // Lights
   const ambient = new THREE.AmbientLight(0x404060, 0.5);
@@ -539,16 +546,16 @@ function loadStl(url, caseId) {
   container.style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
 
-  // Remove previous STL + wireframe + arrow
+  // Remove previous STL + wireframe + plane
   if (stlMesh) {
     if (stlMesh.userData.wireframe) { scene.remove(stlMesh.userData.wireframe); }
     scene.remove(stlMesh);
     stlMesh.geometry.dispose();
     stlMesh.material.dispose();
   }
-  if (flowArrow) { scene.remove(flowArrow);
-    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
-    flowArrow = null;
+  if (setupPlane) { scene.remove(setupPlane);
+    setupPlane.children.forEach(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+    setupPlane = null;
   }
   if (transformControls) transformControls.detach();
   stlSelected = false;
@@ -623,14 +630,23 @@ function loadStl(url, caseId) {
     scene.add(wireframe);
     stlMesh.userData.wireframe = wireframe;
 
-    // Flow direction arrow (use saved direction from inputs if available)
-    const fx = parseFloat(document.getElementById('flowX').value) || 1;
-    const fy = parseFloat(document.getElementById('flowY').value) || 0;
-    const fz = parseFloat(document.getElementById('flowZ').value) || 0;
-    flowDir.set(fx, fy, fz);
-    flowMag = Math.max(flowDir.length(), maxDim * 0.08);
-    if (flowMag < 0.01) flowMag = 1;
-    addFlowArrow(new THREE.Vector3(0, 0, 0), flowDir.clone().normalize(), flowMag);
+    // Create setup plane at initial position
+    const cx = (box.max.x + box.min.x) / 2;
+    const cy = (box.max.y + box.min.y) / 2;
+    const cz = (box.max.z + box.min.z) / 2;
+    planeWidth = maxDim * 0.6;
+    planeHeight = maxDim * 0.4;
+    const dist = maxDim * 2.5;
+    // Get saved position from inputs if available, else auto-position upstream
+    const sx = parseFloat(document.getElementById('spPosX').value) || (cx - dist);
+    const sy = parseFloat(document.getElementById('spPosY').value) || cy;
+    const sz = parseFloat(document.getElementById('spPosZ').value) || cz;
+    const sr = {
+      x: parseFloat(document.getElementById('spPitch').value) || 0,
+      y: parseFloat(document.getElementById('spYaw').value) || -90,
+      z: parseFloat(document.getElementById('spRoll').value) || 0,
+    };
+    createSetupPlane({ x: sx, y: sy, z: sz }, sr);
 
     // Show toolbar
     document.getElementById('viewportToolbar').style.display = 'flex';
@@ -653,43 +669,46 @@ function clearScene() {
     stlMesh.material.dispose();
     stlMesh = null;
   }
-  if (flowArrow) { scene.remove(flowArrow);
-    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
-    flowArrow = null;
+  if (setupPlane) { scene.remove(setupPlane);
+    setupPlane.children.forEach(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+    setupPlane = null;
   }
   if (sliceHelper) { scene.remove(sliceHelper); sliceHelper = null; }
   if (sliceEnabled) { toggleSlice(); }
+  snapMode = false;
 }
 
-function addFlowArrow(origin, dir, len) {
-  if (flowArrow) {
-    scene.remove(flowArrow);
-    if (flowArrow.userData.label) scene.remove(flowArrow.userData.label);
+function createSetupPlane(pos, rot) {
+  if (setupPlane) { scene.remove(setupPlane);
+    setupPlane.children.forEach(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
   }
-  origin = origin || new THREE.Vector3(0, 0, 0);
-  dir = dir || new THREE.Vector3(1, 0, 0);
-  len = len || 1.2;
-  flowArrow = new THREE.ArrowHelper(dir, origin, len, 0xf85149, len * 0.25, len * 0.12);
-  flowArrow.line.material.transparent = true;
-  flowArrow.line.material.opacity = 0.7;
-  flowArrow.cone.material.transparent = true;
-  flowArrow.cone.material.opacity = 0.8;
-  scene.add(flowArrow);
+  const pw = planeWidth || 2, ph = planeHeight || 1.5;
+  setupPlane = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(pw, ph);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false });
+  const mesh = new THREE.Mesh(geo, mat);
+  setupPlane.add(mesh);
+  const edges = new THREE.EdgesGeometry(geo);
+  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.5 }));
+  setupPlane.add(line);
+  const aLen = Math.min(pw, ph) * 0.35;
+  const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), aLen, 0x58a6ff, aLen * 0.3, aLen * 0.15);
+  setupPlane.add(arrow);
+  if (pos) setupPlane.position.set(pos.x, pos.y, pos.z);
+  if (rot) setupPlane.rotation.set(rot.x * Math.PI / 180, rot.y * Math.PI / 180, rot.z * Math.PI / 180);
+  // Label sprite
   const canvas = document.createElement('canvas');
   canvas.width = 128; canvas.height = 48;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'rgba(248,81,73,0.85)';
+  ctx.fillStyle = 'rgba(88,166,255,0.85)';
   ctx.font = 'bold 14px Inter, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Flow →', 64, 30);
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
-  const sprite = new THREE.Sprite(spriteMat);
-  const tip = origin.clone().add(dir.clone().multiplyScalar(len));
-  sprite.position.copy(tip).add(dir.clone().multiplyScalar(0.3)).add(new THREE.Vector3(0, 0.3, 0));
-  sprite.scale.set(0.8, 0.3, 1);
-  flowArrow.userData.label = sprite;
-  scene.add(sprite);
+  ctx.fillText('Inlet →', 64, 30);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
+  sprite.position.set(0, ph * 0.35, aLen + 0.3);
+  sprite.scale.set(0.7, 0.25, 1);
+  setupPlane.add(sprite);
+  scene.add(setupPlane);
 }
 
 // ── Toolbar / 3D Interaction ──
@@ -697,8 +716,8 @@ let activeTool = 'select';
 let transformControls, transformDragging = false;
 let stlSelected = false;
 let sliceEnabled = false, sliceAxis = 'z';
-let slicePlane, sliceHelper, raycaster, mouseVec, flowDir, flowDirVec;
-let flowMag = 1;
+let setupPlane, planeLabel, planeWidth, planeHeight;
+let slicePlane, sliceHelper, raycaster, mouseVec;
 let wireframeVisible = true;
 
 function initToolbar() {
@@ -711,10 +730,12 @@ function initToolbar() {
   document.getElementById('btnWire').addEventListener('click', toggleWire);
   document.getElementById('btnGrid').addEventListener('click', toggleGrid);
   document.getElementById('btnSlice').addEventListener('click', toggleSlice);
-  ['flowX','flowY','flowZ'].forEach(id => {
-    document.getElementById(id).addEventListener('input', updateFlowFromInputs);
+  ['spPosX','spPosY','spPosZ','spPitch','spYaw','spRoll'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSetupFromInputs);
   });
-  document.getElementById('btnApplyFlow').addEventListener('click', applyFlow);
+  document.getElementById('btnSnapPlane').addEventListener('click', snapPlane);
+  document.getElementById('btnResetPlane').addEventListener('click', resetPlane);
+  document.getElementById('btnSaveSetup').addEventListener('click', saveSetup);
   document.querySelectorAll('#slicePanel [data-axis]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#slicePanel [data-axis]').forEach(b => b.classList.remove('active'));
@@ -730,9 +751,9 @@ function initToolbar() {
 function setActiveTool(tool) {
   activeTool = tool;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
-  document.getElementById('flowPanel').style.display = tool === 'flow' ? 'flex' : 'none';
+  document.getElementById('setupPanel').style.display = tool === 'setup' ? 'flex' : 'none';
   if (!transformControls || !stlMesh) return;
-  if (tool === 'flow') { transformControls.detach(); return; }
+  if (tool === 'setup') { transformControls.detach(); snapMode = false; return; }
   if (stlSelected) {
     const modes = { select: 'translate', rotate: 'rotate', scale: 'scale' };
     transformControls.setMode(modes[tool] || 'translate');
@@ -743,7 +764,8 @@ function setActiveTool(tool) {
 // ── Raycasting / Selection ──
 function onCanvasPointerDown(e) {
   if (transformDragging || !stlMesh || !renderer) return;
-  if (activeTool === 'flow') { placeFlowOrigin(e); return; }
+  if (snapMode && activeTool === 'setup') { doSnapPlane(e); return; }
+  if (activeTool === 'setup') return;
   const rect = renderer.domElement.getBoundingClientRect();
   mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -760,42 +782,94 @@ function onCanvasPointerDown(e) {
   }
 }
 
-function placeFlowOrigin(e) {
+// ── Setup Plane ──
+let snapMode = false;
+
+function updateSetupFromInputs() {
+  if (!setupPlane) return;
+  setupPlane.position.set(
+    parseFloat(document.getElementById('spPosX').value) || 0,
+    parseFloat(document.getElementById('spPosY').value) || 0,
+    parseFloat(document.getElementById('spPosZ').value) || 0
+  );
+  setupPlane.rotation.set(
+    (parseFloat(document.getElementById('spPitch').value) || 0) * Math.PI / 180,
+    (parseFloat(document.getElementById('spYaw').value) || 0) * Math.PI / 180,
+    (parseFloat(document.getElementById('spRoll').value) || 0) * Math.PI / 180
+  );
+}
+
+function saveSetup() {
+  if (!currentCase) return;
+  const data = {
+    position: {
+      x: parseFloat(document.getElementById('spPosX').value) || 0,
+      y: parseFloat(document.getElementById('spPosY').value) || 0,
+      z: parseFloat(document.getElementById('spPosZ').value) || 0,
+    },
+    rotation: {
+      x: parseFloat(document.getElementById('spPitch').value) || 0,
+      y: parseFloat(document.getElementById('spYaw').value) || 0,
+      z: parseFloat(document.getElementById('spRoll').value) || 0,
+    }
+  };
+  API.updateCase(currentCase.id, { flow_direction: data })
+    .then(() => showToast('Setup plane saved', 'success'))
+    .catch(e => showToast(e.message, 'error'));
+}
+
+function resetPlane() {
+  if (!stlMesh) return;
+  stlMesh.geometry.computeBoundingBox();
+  const box = stlMesh.geometry.boundingBox;
+  const maxDim = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+  const cx = (box.max.x + box.min.x) / 2;
+  const cy = (box.max.y + box.min.y) / 2;
+  const cz = (box.max.z + box.min.z) / 2;
+  const dist = maxDim * 2.5;
+  document.getElementById('spPosX').value = (cx - dist).toFixed(2);
+  document.getElementById('spPosY').value = cy.toFixed(2);
+  document.getElementById('spPosZ').value = cz.toFixed(2);
+  document.getElementById('spPitch').value = '0';
+  document.getElementById('spYaw').value = '-90';
+  document.getElementById('spRoll').value = '0';
+  updateSetupFromInputs();
+  showToast('Plane reset to default position', 'success');
+}
+
+function snapPlane() {
+  if (!stlMesh) { showToast('No model loaded', 'error'); return; }
+  snapMode = true;
+  showToast('Click on the model surface to place the plane', 'success');
+}
+
+function doSnapPlane(e) {
+  snapMode = false;
   if (!stlMesh || !renderer) return;
   const rect = renderer.domElement.getBoundingClientRect();
   mouseVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(mouseVec, camera);
   const hits = raycaster.intersectObject(stlMesh);
-  if (hits.length > 0) {
-    const pt = hits[0].point;
-    addFlowArrow(pt, flowDir.clone().normalize(), flowMag);
+  if (!hits.length) return;
+  const pt = hits[0].point;
+  const normal = hits[0].face.normal.clone().transformDirection(stlMesh.matrixWorld);
+  if (!setupPlane) {
+    planeWidth = planeWidth || 2;
+    planeHeight = planeHeight || 1.5;
+    createSetupPlane({ x: pt.x, y: pt.y, z: pt.z }, { x: 0, y: 0, z: 0 });
   }
-}
-
-// ── Flow Direction ──
-function updateFlowFromInputs() {
-  if (!flowDir) flowDir = new THREE.Vector3(1, 0, 0);
-  const x = parseFloat(document.getElementById('flowX').value) || 0;
-  const y = parseFloat(document.getElementById('flowY').value) || 0;
-  const z = parseFloat(document.getElementById('flowZ').value) || 0;
-  flowDir.set(x, y, z);
-  flowMag = flowDir.length();
-  if (flowMag < 0.001) { flowDir.set(1, 0, 0); flowMag = 1; }
-  const origin = flowArrow ? flowArrow.position.clone() : new THREE.Vector3(0, 0, 0);
-  addFlowArrow(origin, flowDir.clone().normalize(), flowMag);
-}
-
-function applyFlow() {
-  if (!currentCase) return;
-  API.updateCase(currentCase.id, {
-    flow_direction: {
-      x: parseFloat(document.getElementById('flowX').value) || 1,
-      y: parseFloat(document.getElementById('flowY').value) || 0,
-      z: parseFloat(document.getElementById('flowZ').value) || 0,
-    }
-  }).then(() => showToast('Flow direction saved', 'success'))
-    .catch(e => showToast(e.message, 'error'));
+  setupPlane.position.copy(pt);
+  const up = new THREE.Vector3(0, 1, 0);
+  if (Math.abs(normal.dot(up)) > 0.99) up.set(0, 0, 1);
+  setupPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  document.getElementById('spPosX').value = pt.x.toFixed(2);
+  document.getElementById('spPosY').value = pt.y.toFixed(2);
+  document.getElementById('spPosZ').value = pt.z.toFixed(2);
+  const euler = new THREE.Euler().setFromQuaternion(setupPlane.quaternion);
+  document.getElementById('spPitch').value = (euler.x * 180 / Math.PI).toFixed(1);
+  document.getElementById('spYaw').value = (euler.y * 180 / Math.PI).toFixed(1);
+  document.getElementById('spRoll').value = (euler.z * 180 / Math.PI).toFixed(1);
 }
 
 // ── Slice Plane ──
@@ -990,17 +1064,19 @@ async function selectCase(c) {
   document.getElementById('infoCl').textContent = detail.forces?.cl
     ? detail.forces.cl.toFixed(4) : '—';
 
-  // Populate flow direction from saved data
+  // Populate setup plane from saved data (new format: {position:{x,y,z}, rotation:{x,y,z}})
   if (detail.flow_direction) {
-    document.getElementById('flowX').value = detail.flow_direction.x ?? 1;
-    document.getElementById('flowY').value = detail.flow_direction.y ?? 0;
-    document.getElementById('flowZ').value = detail.flow_direction.z ?? 0;
-    flowDir.set(
-      parseFloat(document.getElementById('flowX').value),
-      parseFloat(document.getElementById('flowY').value),
-      parseFloat(document.getElementById('flowZ').value)
-    );
-    flowMag = flowDir.length() || 1;
+    const fd = detail.flow_direction;
+    if (fd.position) {
+      document.getElementById('spPosX').value = fd.position.x ?? 0;
+      document.getElementById('spPosY').value = fd.position.y ?? 0;
+      document.getElementById('spPosZ').value = fd.position.z ?? 0;
+    }
+    if (fd.rotation) {
+      document.getElementById('spPitch').value = fd.rotation.x ?? 0;
+      document.getElementById('spYaw').value = fd.rotation.y ?? -90;
+      document.getElementById('spRoll').value = fd.rotation.z ?? 0;
+    }
   }
 
   // Pipeline stages
