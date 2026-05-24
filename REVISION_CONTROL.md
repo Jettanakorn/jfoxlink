@@ -1,4 +1,4 @@
-# JFOXLink 1.0 — Revision Control Setup
+# JFOXLink — Revision Control Setup
 
 ## Overview
 
