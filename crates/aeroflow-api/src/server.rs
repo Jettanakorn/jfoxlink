@@ -553,8 +553,8 @@ async fn upload_stl(
         (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError { success: false, error: format!("Failed to save STL: {}", e) }))
     })?;
 
-    // Compute geometry fingerprint
-    let fingerprint = GeometryFingerprint::from_stl(&stl_path).map_err(|e| {
+    // Compute geometry fingerprint (fast: sha256 + bbox, no voxelization)
+    let fingerprint = GeometryFingerprint::from_stl_quick(&stl_path).map_err(|e| {
         (StatusCode::BAD_REQUEST, Json(ApiError { success: false, error: format!("Failed to process STL: {}", e) }))
     })?;
 

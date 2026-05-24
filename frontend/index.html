@@ -324,10 +324,17 @@ const API = {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (this.token) opts.headers['Authorization'] = 'Bearer ' + this.token;
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(this.base + path, opts);
-    const data = await res.json();
-    if (!res.ok && !data.success) throw new Error(data.error || 'Request failed');
-    return data;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 300000);
+    opts.signal = controller.signal;
+    try {
+      const res = await fetch(this.base + path, opts);
+      const data = await res.json();
+      if (!res.ok && !data.success) throw new Error(data.error || 'Request failed');
+      return data;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
   async login() {
     try {

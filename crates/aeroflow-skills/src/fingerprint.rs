@@ -296,6 +296,72 @@ impl GeometryFingerprint {
         })
     }
 
+    /// Read an STL file and compute a quick fingerprint (SHA-256 + bbox, no voxelization).
+    /// Use for upload flows where speed matters; full voxelization can use from_stl().
+    pub fn from_stl_quick(path: &Path) -> Result<Self, anyhow::Error> {
+        // SHA-256 of raw file
+        let sha256_hash = {
+            let mut file = std::fs::File::open(path)?;
+            let mut hasher = sha2::Sha256::new();
+            std::io::copy(&mut file, &mut hasher)?;
+            hasher.finalize().to_vec()
+        };
+
+        let file = std::fs::File::open(path)?;
+        let mut reader = std::io::BufReader::new(file);
+        let mesh = stl_io::read_stl(&mut reader)?;
+        let num_triangles = mesh.faces.len() as u32;
+
+        let vertices: Vec<[f64; 3]> = mesh.vertices.iter()
+            .map(|v| [v[0] as f64, v[1] as f64, v[2] as f64])
+            .collect();
+
+        let tris: Vec<[usize; 3]> = mesh.faces.iter()
+            .map(|f| [f.vertices[0] as usize, f.vertices[1] as usize, f.vertices[2] as usize])
+            .collect();
+
+        // Bounding box
+        let mut bbox = [f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN];
+        for v in &vertices {
+            if v[0] < bbox[0] { bbox[0] = v[0]; }
+            if v[1] < bbox[1] { bbox[1] = v[1]; }
+            if v[2] < bbox[2] { bbox[2] = v[2]; }
+            if v[0] > bbox[3] { bbox[3] = v[0]; }
+            if v[1] > bbox[4] { bbox[4] = v[1]; }
+            if v[2] > bbox[5] { bbox[5] = v[2]; }
+        }
+
+        let extents = [bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2]];
+        let volume = extents[0] * extents[1] * extents[2];
+        let surface_area = if volume > 0.0 {
+            2.0 * (extents[0]*extents[1] + extents[0]*extents[2] + extents[1]*extents[2])
+        } else {
+            0.0
+        };
+        let aspect_ratio = if extents[0] > 0.0 {
+            extents.iter().cloned().fold(f64::MIN, f64::max)
+                / extents.iter().cloned().fold(f64::MAX, f64::min)
+        } else {
+            1.0
+        };
+
+        Ok(GeometryFingerprint {
+            geometry_id: Uuid::new_v4(),
+            sha256_hash,
+            voxel_signature: VoxelSignature {
+                coarse_hash: vec![0u8; 64],
+                medium_hash: vec![0u8; 4096],
+                fine_hash: vec![0u8; 32],
+                voxel_data: None,
+            },
+            bbox,
+            surface_area,
+            volume,
+            aspect_ratio,
+            num_triangles,
+        })
+    }
+
     /// Compute fingerprint from already-loaded vertex/triangle data.
     pub fn compute_fingerprint(vertices: &[[f64; 3]], triangles: &[[usize; 3]]) -> GeometryFingerprint {
         let mut bbox = [f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN];
