@@ -375,6 +375,44 @@ pub struct IntakeConfig {
     pub pemfc: Option<PemfcConfig>,
     /// Digital Wind Tunnel configuration (None for non-external-aero cases or to use defaults)
     pub wind_tunnel: Option<WindTunnelConfig>,
+    /// Multiphase flow configuration (VOF / EulerEuler / DriftFlux) — None for single-phase
+    pub multiphase: Option<MultiphaseConfig>,
+    /// Non-Newtonian fluid configuration — None for Newtonian
+    pub non_newtonian: Option<NonNewtonianConfig>,
+    /// Viscoelastic fluid configuration — None for non-viscoelastic
+    pub viscoelastic: Option<ViscoelasticConfig>,
+    /// Combustion / reacting flow configuration — None for non-reacting
+    pub combustion: Option<CombustionConfig>,
+    /// Cavitation configuration — None for non-cavitating
+    pub cavitation: Option<CavitationConfig>,
+    /// Spray / Lagrangian particle configuration — None for non-spray
+    pub spray: Option<SprayConfig>,
+    /// Phase change / melting-solidification configuration — None for no phase change
+    pub phase_change: Option<PhaseChangeConfig>,
+    /// Particle tracking configuration — None for no particles
+    pub particle: Option<ParticleConfig>,
+    /// Porous media zone configuration — None for non-porous
+    pub porous: Option<PorousZoneConfig>,
+    /// Aeroacoustic / FW-H configuration — None for no acoustics
+    pub aeroacoustic: Option<AeroacousticConfig>,
+    /// Fluid-structure interaction configuration — None for rigid
+    pub fsi: Option<FSIConfig>,
+    /// Free surface wave configuration — None for no waves
+    pub wave: Option<WaveConfig>,
+    /// Wind turbine actuator configuration — None for no turbine
+    pub wind_turbine: Option<WindTurbineConfig>,
+    /// Electrostatic / charge transport configuration — None for neutral
+    pub electrostatic: Option<ElectrostaticConfig>,
+    /// Ablation / TPS configuration — None for non-ablating
+    pub ablation: Option<AblationConfig>,
+    /// Propulsion configuration — None for non-propulsive
+    pub propulsion: Option<PropulsionConfig>,
+    /// Nuclear / radiation transport configuration — None for non-nuclear
+    pub nuclear: Option<NuclearConfig>,
+    /// Marine / hydrodynamics configuration — None for non-marine
+    pub marine: Option<MarineConfig>,
+    /// ML surrogate / active learning configuration — None for no surrogate
+    pub ml_surrogate: Option<MlSurrogateConfig>,
 }
 
 /// Rotating machinery configuration (MRF / AMI / propeller / turbomachinery)

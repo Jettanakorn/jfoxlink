@@ -22,8 +22,9 @@ impl SolverConfigGen {
         Self { write_format: format }
     }
 
-    /// Select solver based on flow regime and rotating machinery
+    /// Select solver based on flow regime, rotating machinery, and physics modules
     pub fn select_solver(&self, intake: &IntakeConfig) -> &'static str {
+        // Hypersonic takes highest priority
         if let Some(ref hyp) = intake.hypersonic {
             if hyp.rarefied { return "dsmcFoam"; }
             if hyp.chemistry != ChemistryModel::None || hyp.two_temperature { return "hy2Foam"; }
@@ -31,23 +32,61 @@ impl SolverConfigGen {
             if hyp.real_gas { return "rhoCentralFoam"; }
             return "rhoCentralFoam";
         }
+        // Combustion / reacting flow
+        if intake.combustion.is_some() {
+            return "reactingFoam";
+        }
+        // Spray / Lagrangian particles
+        if intake.spray.is_some() {
+            return "sprayFoam";
+        }
+        // Cavitation — use interPhaseChangeFoam
+        if intake.cavitation.is_some() {
+            return "interPhaseChangeFoam";
+        }
+        // Multiphase flow
+        if let Some(ref mp) = intake.multiphase {
+            match mp.model {
+                MultiphaseModel::VOF if intake.mach_number > 0.3 => return "compressibleInterFoam",
+                MultiphaseModel::VOF => return "interFoam",
+                MultiphaseModel::EulerEuler => return "multiphaseEulerFoam",
+                MultiphaseModel::DriftFlux => return "driftFluxFoam",
+            }
+        }
+        // Phase change (melting / solidification)
+        if intake.phase_change.is_some() {
+            return "solidificationMeltingFoam";
+        }
+        // Non-Newtonian / viscoelastic
+        if intake.non_newtonian.is_some() || intake.viscoelastic.is_some() {
+            return "nonNewtonianIcoFoam";
+        }
+        // Wind turbine actuator
+        if intake.wind_turbine.is_some() {
+            return "pimpleFoam";
+        }
+        // Free surface waves
+        if intake.wave.is_some() {
+            return "interFoam";
+        }
+        // Rotating machinery
         if let Some(ref rot) = intake.rotating {
             let ma = intake.mach_number;
-            match rot.approach {
+            return match rot.approach {
                 RotatingApproach::MRF => {
                     if ma > 0.3 { "rhoSimpleFoam" } else { "simpleFoam" }
                 }
                 RotatingApproach::AMI => {
                     if ma > 0.3 { "rhoPimpleFoam" } else { "pimpleFoam" }
                 }
-            }
-        } else {
-            match () {
-                _ if intake.mach_number < 0.3 => "simpleFoam",
-                _ if intake.mach_number < 0.8 => "rhoSimpleFoam",
-                _ if intake.mach_number < 1.2 => "rhoCentralFoam",
-                _ => "rhoCentralFoam",
-            }
+            };
+        }
+        // Default Mach-based selection
+        match () {
+            _ if intake.mach_number < 0.3 => "simpleFoam",
+            _ if intake.mach_number < 0.8 => "rhoSimpleFoam",
+            _ if intake.mach_number < 1.2 => "rhoCentralFoam",
+            _ => "rhoCentralFoam",
         }
     }
 
@@ -2264,6 +2303,81 @@ mergePatchPairs
             nz = nz,
         )
     }
+
+    /// Validate combined physics module configuration.
+    /// Returns a list of warning/error messages. Empty means all clear.
+    pub fn validate_config(&self, intake: &IntakeConfig) -> Vec<String> {
+        let mut warnings: Vec<String> = Vec::new();
+
+        let has_hypersonic = intake.hypersonic.is_some();
+        let has_multiphase = intake.multiphase.is_some();
+        let has_combustion = intake.combustion.is_some();
+        let has_cavitation = intake.cavitation.is_some();
+        let has_spray = intake.spray.is_some();
+        let has_phase_change = intake.phase_change.is_some();
+        let has_non_newtonian = intake.non_newtonian.is_some();
+        let has_wave = intake.wave.is_some();
+        let has_wind_turbine = intake.wind_turbine.is_some();
+        let has_fsi = intake.fsi.is_some();
+        let has_ablation = intake.ablation.is_some();
+        let is_ami = intake.rotating.as_ref().is_some_and(|r| matches!(r.approach, RotatingApproach::AMI));
+
+        // Hypersonic + others
+        if has_hypersonic && has_multiphase {
+            warnings.push("Hypersonic flow with multiphase is not physically meaningful".into());
+        }
+        if has_hypersonic && has_wave {
+            warnings.push("Hypersonic flow with free surface waves is not physically meaningful".into());
+        }
+        if has_hypersonic && has_non_newtonian {
+            warnings.push("Hypersonic flow with non-Newtonian rheology is unusual — verify physics".into());
+        }
+
+        // Combustion conflicts
+        if has_combustion && has_cavitation {
+            warnings.push("Combustion and cavitation are mutually exclusive mass-transfer models".into());
+        }
+        if has_combustion && has_spray {
+            warnings.push("Combustion with spray Lagrangian phase requires reactingFoam with sprayFoam features".into());
+        }
+
+        // VOF + phase change
+        if intake.multiphase.as_ref().is_some_and(|mp| matches!(mp.model, MultiphaseModel::VOF)) && has_phase_change {
+            warnings.push("VOF multiphase with phase change (enthalpy porosity) requires compressibleInterFoam with solidificationMeltingFoam — verify solver capability".into());
+        }
+
+        // FSI conflicts
+        if has_fsi && is_ami {
+            warnings.push("FSI with AMI sliding mesh is not supported — use FSI with static mesh or MRF".into());
+        }
+
+        // Wave + wind turbine
+        if has_wave && has_wind_turbine {
+            warnings.push("Wave generation with wind turbine actuator is experimental — verify wave damping zone placement".into());
+        }
+
+        // Spray + multiphase
+        if has_spray && has_multiphase {
+            warnings.push("Spray injection into multiphase flow requires reactingParcelFoam or sprayFoam with multiphase support".into());
+        }
+
+        // Cavitation + phase change
+        if has_cavitation && has_phase_change {
+            warnings.push("Cavitation and phase-change models are unlikely to be compatible".into());
+        }
+
+        // Ablation + combustion
+        if has_ablation && has_combustion {
+            warnings.push("Ablation with volumetric combustion requires careful pyrolysis gas modeling".into());
+        }
+
+        // Multiphase + Non-Newtonian
+        if has_multiphase && has_non_newtonian {
+            warnings.push("Non-Newtonian rheology in multiphase flow requires viscoelasticTransportModel support".into());
+        }
+
+        warnings
+    }
 }
 
 #[cfg(test)]
@@ -2298,6 +2412,25 @@ mod tests {
             mhd: None,
             pemfc: None,
             wind_tunnel: None,
+            multiphase: None,
+            non_newtonian: None,
+            viscoelastic: None,
+            combustion: None,
+            cavitation: None,
+            spray: None,
+            phase_change: None,
+            particle: None,
+            porous: None,
+            aeroacoustic: None,
+            fsi: None,
+            wave: None,
+            wind_turbine: None,
+            electrostatic: None,
+            ablation: None,
+            propulsion: None,
+            nuclear: None,
+            marine: None,
+            ml_surrogate: None,
         }
     }
 
@@ -2671,6 +2804,424 @@ mod tests {
     fn test_select_solver_hypersonic_high_mach_triggers_hy2foam() {
         let i = hypersonic_intake(9.0, ChemistryModel::None, false);
         assert_eq!(SolverConfigGen::new().select_solver(&i), "hy2Foam");
+    }
+
+    // ── select_solver (mixed-media) ────────────────────────────
+
+    #[test]
+    fn test_select_solver_multiphase_vof_subsonic() {
+        let mut i = base_intake();
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "interFoam");
+    }
+
+    #[test]
+    fn test_select_solver_multiphase_vof_transonic() {
+        let mut i = base_intake();
+        i.mach_number = 0.5;
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "compressibleInterFoam");
+    }
+
+    #[test]
+    fn test_select_solver_multiphase_euler_euler() {
+        let mut i = base_intake();
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::EulerEuler,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["oil".into(), "water".into()],
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "multiphaseEulerFoam");
+    }
+
+    #[test]
+    fn test_select_solver_multiphase_drift_flux() {
+        let mut i = base_intake();
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::DriftFlux,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["gas".into(), "liquid".into()],
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "driftFluxFoam");
+    }
+
+    #[test]
+    fn test_select_solver_combustion() {
+        let mut i = base_intake();
+        i.combustion = Some(CombustionConfig {
+            model: CombustionModel::EDC,
+            c_eps: 2.1377,
+            c_mu: 0.09,
+            oxidizer: "O2".into(),
+            fuel: "CH4".into(),
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "reactingFoam");
+    }
+
+    #[test]
+    fn test_select_solver_spray() {
+        let mut i = base_intake();
+        i.spray = Some(SprayConfig {
+            breakup: SprayBreakupModel::KHRT,
+            evaporation: SprayEvaporationModel::Standard,
+            collision: true,
+            parcel_per_second: 1e5,
+            injection_velocity_m_s: 50.0,
+            cone_angle_deg: 15.0,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "sprayFoam");
+    }
+
+    #[test]
+    fn test_select_solver_cavitation() {
+        let mut i = base_intake();
+        i.cavitation = Some(CavitationConfig {
+            model: CavitationModel::SchnerrSauer,
+            p_vap_kpa: 2.34,
+            rho_liquid_kg_m3: 1000.0,
+            rho_vapor_kg_m3: 0.0258,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "interPhaseChangeFoam");
+    }
+
+    #[test]
+    fn test_select_solver_phase_change() {
+        let mut i = base_intake();
+        i.phase_change = Some(PhaseChangeConfig {
+            model: PhaseChangeModel::EnthalpyPorosity,
+            t_solidus_k: 800.0,
+            t_liquidus_k: 900.0,
+            latent_heat_j_kg: 2.5e5,
+            mushy_constant: 1e5,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "solidificationMeltingFoam");
+    }
+
+    #[test]
+    fn test_select_solver_non_newtonian() {
+        let mut i = base_intake();
+        i.non_newtonian = Some(NonNewtonianConfig {
+            model: ViscosityModel::PowerLaw,
+            nu0: 1e-2,
+            nu_inf: 1e-6,
+            k: 0.005,
+            n: 0.4,
+            tau0: 10.0,
+            nu_min: 1e-4,
+            nu_max: 1e2,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "nonNewtonianIcoFoam");
+    }
+
+    #[test]
+    fn test_select_solver_viscoelastic() {
+        let mut i = base_intake();
+        i.viscoelastic = Some(ViscoelasticConfig {
+            model: ViscoelasticModel::OldroydB,
+            relaxation_time_s: 1.0,
+            solvent_viscosity_ratio: 0.1,
+            mobility_factor: 0.2,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "nonNewtonianIcoFoam");
+    }
+
+    #[test]
+    fn test_select_solver_wind_turbine() {
+        let mut i = base_intake();
+        i.wind_turbine = Some(WindTurbineConfig {
+            actuator: ActuatorModel::Disc,
+            thrust_coefficient: 0.8,
+            power_coefficient: 0.45,
+            rotor_diameter_m: 126.0,
+            hub_height_m: 90.0,
+            wind_speed_ref_m_s: 10.0,
+            rated_power_mw: 5.0,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "pimpleFoam");
+    }
+
+    #[test]
+    fn test_select_solver_wave() {
+        let mut i = base_intake();
+        i.wave = Some(WaveConfig {
+            model: WaveModel::StokesFirst,
+            wave_height_m: 2.0,
+            wave_period_s: 8.0,
+            water_depth_m: 20.0,
+            direction_deg: 0.0,
+            relaxation_zone_length_m: 10.0,
+        });
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "interFoam");
+    }
+
+    #[test]
+    fn test_select_solver_multiphase_plus_rotating_multiphase_wins() {
+        let mut i = base_intake();
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        i.rotating = Some(RotatingConfig {
+            rpm: 2500.0, axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+            approach: RotatingApproach::MRF, num_blades: 3,
+            diameter_m: Some(0.5), hub_diameter_m: Some(0.05),
+            tip_clearance_m: None, advance_ratio: Some(0.5),
+            target_ct: None, target_cp_max: None, target_eta_min: None,
+            mass_flow_kg_s: None, pressure_ratio_target: None,
+        });
+        // Multiphase has higher priority than rotating
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "interFoam");
+    }
+
+    #[test]
+    fn test_select_solver_hypersonic_over_multiphase() {
+        let mut i = hypersonic_intake(7.0, ChemistryModel::None, false);
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF,
+            n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        // Hypersonic has highest priority
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "rhoCentralFoam");
+    }
+
+    #[test]
+    fn test_select_solver_combustion_over_spray() {
+        let mut i = base_intake();
+        i.combustion = Some(CombustionConfig {
+            model: CombustionModel::EDC,
+            c_eps: 2.1377, c_mu: 0.09,
+            oxidizer: "O2".into(), fuel: "CH4".into(),
+        });
+        i.spray = Some(SprayConfig {
+            breakup: SprayBreakupModel::KHRT, evaporation: SprayEvaporationModel::Standard,
+            collision: true, parcel_per_second: 1e5,
+            injection_velocity_m_s: 50.0, cone_angle_deg: 15.0,
+        });
+        // Combustion has higher priority than spray
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "reactingFoam");
+    }
+
+    #[test]
+    fn test_select_solver_spray_over_multiphase() {
+        let mut i = base_intake();
+        i.spray = Some(SprayConfig {
+            breakup: SprayBreakupModel::KHRT, evaporation: SprayEvaporationModel::Standard,
+            collision: true, parcel_per_second: 1e5,
+            injection_velocity_m_s: 50.0, cone_angle_deg: 15.0,
+        });
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF, n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        // Spray has higher priority than multiphase
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "sprayFoam");
+    }
+
+    #[test]
+    fn test_select_solver_wave_over_rotating() {
+        let mut i = base_intake();
+        i.wave = Some(WaveConfig {
+            model: WaveModel::StokesFirst, wave_height_m: 2.0,
+            wave_period_s: 8.0, water_depth_m: 20.0,
+            direction_deg: 0.0, relaxation_zone_length_m: 10.0,
+        });
+        i.rotating = Some(RotatingConfig {
+            rpm: 2500.0, axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+            approach: RotatingApproach::MRF, num_blades: 3,
+            diameter_m: Some(0.5), hub_diameter_m: Some(0.05),
+            tip_clearance_m: None, advance_ratio: Some(0.5),
+            target_ct: None, target_cp_max: None, target_eta_min: None,
+            mass_flow_kg_s: None, pressure_ratio_target: None,
+        });
+        // Wave has higher priority than rotating
+        assert_eq!(SolverConfigGen::new().select_solver(&i), "interFoam");
+    }
+
+    #[test]
+    fn test_select_solver_multiphase_config_roundtrip() {
+        let orig = MultiphaseConfig {
+            model: MultiphaseModel::EulerEuler,
+            n_phases: 3,
+            surface_tension_n_m: 0.05,
+            phase_names: vec!["oil".into(), "water".into(), "gas".into()],
+        };
+        let json = serde_json::to_string(&orig).unwrap();
+        let deser: MultiphaseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(orig.model, deser.model);
+        assert_eq!(orig.n_phases, deser.n_phases);
+        assert_eq!(orig.phase_names, deser.phase_names);
+    }
+
+    #[test]
+    fn test_select_solver_combustion_config_roundtrip() {
+        let orig = CombustionConfig {
+            model: CombustionModel::PaSR,
+            c_eps: 1.5,
+            c_mu: 0.08,
+            oxidizer: "air".into(),
+            fuel: "H2".into(),
+        };
+        let json = serde_json::to_string(&orig).unwrap();
+        let deser: CombustionConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(orig.model, deser.model);
+        assert_eq!(orig.fuel, deser.fuel);
+    }
+
+    #[test]
+    fn test_select_solver_spray_config_roundtrip() {
+        let orig = SprayConfig {
+            breakup: SprayBreakupModel::TAB,
+            evaporation: SprayEvaporationModel::FuchsKnudsen,
+            collision: false,
+            parcel_per_second: 5e4,
+            injection_velocity_m_s: 30.0,
+            cone_angle_deg: 20.0,
+        };
+        let json = serde_json::to_string(&orig).unwrap();
+        let deser: SprayConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(orig.breakup, deser.breakup);
+        assert_eq!(orig.evaporation, deser.evaporation);
+    }
+
+    // ── validate_config Tests ───────────────────────────────────
+
+    #[test]
+    fn test_validate_clean_no_warnings() {
+        let i = base_intake();
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.is_empty(), "expected no warnings, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_hypersonic_multiphase_conflict() {
+        let mut i = base_intake();
+        i.hypersonic = Some(HypersonicConfig {
+            mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+            wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+            chemistry: ChemistryModel::None, two_temperature: false,
+            rarefied: false, nose_radius_m: None,
+            flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+        });
+        i.multiphase = Some(MultiphaseConfig {
+            model: MultiphaseModel::VOF, n_phases: 2,
+            surface_tension_n_m: 0.07,
+            phase_names: vec!["water".into(), "air".into()],
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.iter().any(|w| w.contains("Hypersonic") && w.contains("multiphase")),
+            "expected hypersonic+multiphase warning, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_hypersonic_wave_conflict() {
+        let mut i = base_intake();
+        i.hypersonic = Some(HypersonicConfig {
+            mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+            wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+            chemistry: ChemistryModel::None, two_temperature: false,
+            rarefied: false, nose_radius_m: None,
+            flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+        });
+        i.wave = Some(WaveConfig {
+            model: WaveModel::StokesFirst, wave_height_m: 2.0, wave_period_s: 8.0,
+            water_depth_m: 20.0, direction_deg: 0.0, relaxation_zone_length_m: 10.0,
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.iter().any(|w| w.contains("Hypersonic") && w.contains("waves")),
+            "expected hypersonic+wave warning, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_combustion_cavitation_conflict() {
+        let mut i = base_intake();
+        i.combustion = Some(CombustionConfig {
+            model: CombustionModel::EDC, c_eps: 2.1377, c_mu: 0.09,
+            oxidizer: "O2".into(), fuel: "CH4".into(),
+        });
+        i.cavitation = Some(CavitationConfig {
+            model: CavitationModel::SchnerrSauer, p_vap_kpa: 2.34,
+            rho_liquid_kg_m3: 1000.0, rho_vapor_kg_m3: 0.0258,
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.iter().any(|w| w.contains("Combustion") && w.contains("cavitation")),
+            "expected combustion+cavitation warning, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_fsi_ami_conflict() {
+        let mut i = base_intake();
+        i.fsi = Some(FSIConfig {
+            model: FSIModel::LinearElastic, coupling: FSICoupling::DirichletNeumann,
+            youngs_modulus_gpa: 200.0, poisson_ratio: 0.3, density_kg_m3: 7800.0,
+            mesh_relaxation: 0.5, n_subcycles: 5,
+        });
+        i.rotating = Some(RotatingConfig {
+            rpm: 2500.0, axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+            approach: RotatingApproach::AMI, num_blades: 3,
+            diameter_m: Some(0.5), hub_diameter_m: Some(0.05),
+            tip_clearance_m: None, advance_ratio: Some(0.5),
+            target_ct: None, target_cp_max: None, target_eta_min: None,
+            mass_flow_kg_s: None, pressure_ratio_target: None,
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.iter().any(|w| w.contains("FSI") && w.contains("AMI")),
+            "expected FSI+AMI warning, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_fsi_mrf_no_conflict() {
+        // MRF should NOT trigger the FSI+AMI warning
+        let mut i = base_intake();
+        i.fsi = Some(FSIConfig {
+            model: FSIModel::LinearElastic, coupling: FSICoupling::DirichletNeumann,
+            youngs_modulus_gpa: 200.0, poisson_ratio: 0.3, density_kg_m3: 7800.0,
+            mesh_relaxation: 0.5, n_subcycles: 5,
+        });
+        i.rotating = Some(RotatingConfig {
+            rpm: 2500.0, axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+            approach: RotatingApproach::MRF, num_blades: 3,
+            diameter_m: Some(0.5), hub_diameter_m: Some(0.05),
+            tip_clearance_m: None, advance_ratio: Some(0.5),
+            target_ct: None, target_cp_max: None, target_eta_min: None,
+            mass_flow_kg_s: None, pressure_ratio_target: None,
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(!warnings.iter().any(|w| w.contains("FSI")),
+            "FSI+MRF should not produce FSI warning, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_wave_wind_turbine_warning() {
+        let mut i = base_intake();
+        i.wave = Some(WaveConfig {
+            model: WaveModel::StokesFirst, wave_height_m: 2.0, wave_period_s: 8.0,
+            water_depth_m: 20.0, direction_deg: 0.0, relaxation_zone_length_m: 10.0,
+        });
+        i.wind_turbine = Some(WindTurbineConfig {
+            actuator: ActuatorModel::Disc, thrust_coefficient: 0.8,
+            power_coefficient: 0.45, rotor_diameter_m: 126.0,
+            hub_height_m: 90.0, wind_speed_ref_m_s: 10.0, rated_power_mw: 5.0,
+        });
+        let warnings = SolverConfigGen::new().validate_config(&i);
+        assert!(warnings.iter().any(|w| w.contains("wave") && w.contains("wind turbine")),
+            "expected wave+wind_turbine warning, got: {:?}", warnings);
     }
 
     // ── select_hypersonic_flux ───────────────────────────────────

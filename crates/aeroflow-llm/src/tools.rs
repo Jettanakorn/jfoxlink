@@ -1,5 +1,5 @@
 use crate::types::ToolDef;
-use aeroflow_core::types::{ForceCoefficients, MeshQualityMetrics, SolverStats, RotatingConfig, RotatingApproach, HypersonicConfig, ChemistryModel, WallCatalysis, FluxScheme, ChtConfig, HeatTransferProblem, SolidMaterial, RadiationModel, MhdConfig, MhdSolver, MhdWallConductivity, PlasmaModel, PlasmaActuatorConfig, PropulsionConfig, PropulsionModel, NuclearConfig, NuclearModel, MarineConfig, MarineModel, MlSurrogateConfig, MlSurrogateModel, SolverDesign, SolverTemplate, CouplingStrategy, TimeTreatment, PhysicsModule, PemfcModel, PemfcConfig, PemfcFlowField, PemfcCycleProfile, PemfcDegradationModel, WindTunnelConfig};
+use aeroflow_core::types::{ForceCoefficients, MeshQualityMetrics, SolverStats, RotatingConfig, RotatingApproach, HypersonicConfig, ChemistryModel, WallCatalysis, FluxScheme, ChtConfig, HeatTransferProblem, SolidMaterial, RadiationModel, MhdConfig, MhdSolver, MhdWallConductivity, PlasmaModel, PlasmaActuatorConfig, PropulsionConfig, PropulsionModel, NuclearConfig, NuclearModel, MarineConfig, MarineModel, MlSurrogateConfig, MlSurrogateModel, SolverDesign, SolverTemplate, CouplingStrategy, TimeTreatment, PhysicsModule, PemfcModel, PemfcConfig, PemfcFlowField, PemfcCycleProfile, PemfcDegradationModel, WindTunnelConfig, ViscosityModel, NonNewtonianConfig, ViscoelasticModel, ViscoelasticConfig, MultiphaseModel, MultiphaseConfig, CombustionModel, CombustionConfig, CavitationModel, CavitationConfig, SprayBreakupModel, SprayEvaporationModel, SprayConfig, PhaseChangeModel, PhaseChangeConfig, ParticleInjection, ParticleConfig, PorousModel, PorousZoneConfig, AeroacousticConfig, FWHSource, FSIModel, FSICoupling, FSIConfig, WaveModel, WaveConfig, ActuatorModel, WindTurbineConfig, ElectrostaticConfig, AblationModel, AblationConfig};
 use aeroflow_core::{CaseConfig, IntakeConfig, Priority, FlowType};
 use aeroflow_learner::reward::RewardFunction;
 use aeroflow_pipeline::PipelineOrchestrator;
@@ -174,6 +174,169 @@ pub fn get_all_tools() -> Vec<ToolDef> {
                             "velocity_m_s": {"type": "number", "description": "Freestream velocity (m/s)"},
                             "turbulence_intensity": {"type": "number", "description": "Turbulence intensity fraction (default 0.005)"},
                             "reference_length_m": {"type": "number", "description": "Override auto-detected reference chord (m)"}
+                        }
+                    },
+                    "multiphase": {
+                        "type": "object",
+                        "description": "Multiphase flow configuration (optional) — VOF / EulerEuler / DriftFlux for mixing multiple fluids",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["vof", "eulerEuler", "driftFlux"], "description": "Multiphase model"},
+                            "n_phases": {"type": "integer", "description": "Number of fluid phases"},
+                            "surface_tension_N_m": {"type": "number", "description": "Surface tension between phases (N/m)"},
+                            "phase_names": {"type": "array", "items": {"type": "string"}, "description": "Names of fluid phases"}
+                        }
+                    },
+                    "non_newtonian": {
+                        "type": "object",
+                        "description": "Non-Newtonian fluid configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["newtonian", "powerLaw", "crossPowerLaw", "birdCarreau", "herschelBulkley", "casson"]},
+                            "nu0": {"type": "number", "description": "Zero-shear viscosity (m²/s)"},
+                            "nu_inf": {"type": "number", "description": "Infinite-shear viscosity (m²/s)"},
+                            "k": {"type": "number", "description": "Consistency index"},
+                            "n": {"type": "number", "description": "Power-law index"},
+                            "tau0": {"type": "number", "description": "Yield stress (m²/s²)"}
+                        }
+                    },
+                    "viscoelastic": {
+                        "type": "object",
+                        "description": "Viscoelastic fluid configuration (optional) — Oldroyd-B / Giesekus",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["oldroydB", "giesekus"]},
+                            "relaxation_time_s": {"type": "number"},
+                            "solvent_viscosity_ratio": {"type": "number"},
+                            "mobility_factor": {"type": "number"}
+                        }
+                    },
+                    "combustion": {
+                        "type": "object",
+                        "description": "Combustion / reacting flow configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["edc", "laminarFlamelet", "paSR", "wellStirredReactor"]},
+                            "fuel": {"type": "string", "description": "Fuel species (e.g. CH4, H2, C3H8)"},
+                            "oxidizer": {"type": "string", "description": "Oxidizer species (e.g. O2, air)"},
+                            "c_eps": {"type": "number"},
+                            "c_mu": {"type": "number"}
+                        }
+                    },
+                    "cavitation": {
+                        "type": "object",
+                        "description": "Cavitation configuration (optional) — Kunz / SchnerrSauer / Merkle",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["kunz", "schnerrSauer", "merkle"]},
+                            "p_vap_kPa": {"type": "number", "description": "Vapor pressure (kPa)"},
+                            "rho_liquid_kg_m3": {"type": "number"},
+                            "rho_vapor_kg_m3": {"type": "number"}
+                        }
+                    },
+                    "spray": {
+                        "type": "object",
+                        "description": "Spray / Lagrangian droplet configuration (optional)",
+                        "properties": {
+                            "breakup": {"type": "string", "enum": ["reitzDiwakar", "khrt", "tab", "pilchErdman"]},
+                            "evaporation": {"type": "string", "enum": ["standard", "fuchsKnudsen"]},
+                            "collision": {"type": "boolean"},
+                            "parcels_per_second": {"type": "number"},
+                            "injection_velocity_m_s": {"type": "number"},
+                            "cone_angle_deg": {"type": "number"}
+                        }
+                    },
+                    "phase_change": {
+                        "type": "object",
+                        "description": "Phase change / melting-solidification configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["enthalpyPorosity", "levelSet"]},
+                            "t_solidus_K": {"type": "number"},
+                            "t_liquidus_K": {"type": "number"},
+                            "latent_heat_J_kg": {"type": "number"},
+                            "mushy_constant": {"type": "number"}
+                        }
+                    },
+                    "particle": {
+                        "type": "object",
+                        "description": "Lagrangian particle tracking configuration (optional)",
+                        "properties": {
+                            "injection": {"type": "string", "enum": ["patch", "cone", "manual"]},
+                            "diameter_m": {"type": "number"},
+                            "mass_flow_kg_s": {"type": "number"},
+                            "velocity_m_s": {"type": "number"},
+                            "temperature_K": {"type": "number"},
+                            "density_kg_m3": {"type": "number"}
+                        }
+                    },
+                    "porous": {
+                        "type": "object",
+                        "description": "Porous media zone configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["darcy", "darcyForchheimer"]},
+                            "cell_zone": {"type": "string"},
+                            "d_coeffs": {"type": "array", "items": {"type": "number"}, "description": "Darcy coefficients [d, d, d]"},
+                            "f_coeffs": {"type": "array", "items": {"type": "number"}, "description": "Forchheimer coefficients [f, f, f]"}
+                        }
+                    },
+                    "fsi": {
+                        "type": "object",
+                        "description": "Fluid-structure interaction configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["linearElastic", "nonLinearGeometric", "plastic"]},
+                            "coupling": {"type": "string", "enum": ["dirichletNeumann", "neumannNeumann", "robinRobin"]},
+                            "youngs_modulus_GPa": {"type": "number"},
+                            "poisson_ratio": {"type": "number"},
+                            "density_kg_m3": {"type": "number"}
+                        }
+                    },
+                    "wave": {
+                        "type": "object",
+                        "description": "Free surface wave configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["stokesFirst", "stokesFifth", "irregular", "streamFunction"]},
+                            "wave_height_m": {"type": "number"},
+                            "wave_period_s": {"type": "number"},
+                            "water_depth_m": {"type": "number"},
+                            "direction_deg": {"type": "number"}
+                        }
+                    },
+                    "wind_turbine": {
+                        "type": "object",
+                        "description": "Wind turbine actuator configuration (optional)",
+                        "properties": {
+                            "actuator": {"type": "string", "enum": ["disc", "line", "alm"]},
+                            "thrust_coefficient": {"type": "number"},
+                            "power_coefficient": {"type": "number"},
+                            "rotor_diameter_m": {"type": "number"},
+                            "hub_height_m": {"type": "number"},
+                            "wind_speed_ref_m_s": {"type": "number"}
+                        }
+                    },
+                    "aeroacoustic": {
+                        "type": "object",
+                        "description": "Aeroacoustic / FW-H noise configuration (optional)",
+                        "properties": {
+                            "fwh_source": {"type": "string", "enum": ["permeable", "solid"]},
+                            "receiver_positions": {"type": "array", "items": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}},
+                            "start_time": {"type": "number"},
+                            "density_far": {"type": "number"},
+                            "speed_of_sound": {"type": "number"}
+                        }
+                    },
+                    "electrostatic": {
+                        "type": "object",
+                        "description": "Electrostatic / charge transport configuration (optional)",
+                        "properties": {
+                            "potential_V": {"type": "number"},
+                            "permittivity_F_m": {"type": "number"},
+                            "space_charge_C_m3": {"type": "number"},
+                            "ion_mobility_m2_Vs": {"type": "number"}
+                        }
+                    },
+                    "ablation": {
+                        "type": "object",
+                        "description": "Ablation / thermal protection system configuration (optional)",
+                        "properties": {
+                            "model": {"type": "string", "enum": ["surfaceRecession", "charringMaterial", "pyrolysis"]},
+                            "wall_temp_K": {"type": "number"},
+                            "heat_flux_MW_m2": {"type": "number"},
+                            "blowing_rate": {"type": "number"}
                         }
                     }
                 },
@@ -737,6 +900,294 @@ pub async fn execute_tool(
                 }
             });
 
+            // Build multiphase config if provided
+            let multiphase = args.get("multiphase").map(|m| {
+                let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+                let model = match model_str {
+                    "eulerEuler" => MultiphaseModel::EulerEuler,
+                    "driftFlux" => MultiphaseModel::DriftFlux,
+                    _ => MultiphaseModel::VOF,
+                };
+                MultiphaseConfig {
+                    model,
+                    n_phases: m.get("n_phases").and_then(|v| v.as_u64()).unwrap_or(2) as u32,
+                    surface_tension_n_m: m.get("surface_tension_N_m").and_then(|v| v.as_f64()).unwrap_or(0.07),
+                    phase_names: m.get("phase_names")
+                        .and_then(|p| p.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                        .unwrap_or_else(|| vec!["phase1".into(), "phase2".into()]),
+                }
+            });
+
+            // Build non-Newtonian config if provided
+            let non_newtonian = args.get("non_newtonian").map(|n| {
+                let model_str = n.get("model").and_then(|v| v.as_str()).unwrap_or("newtonian");
+                let model = match model_str {
+                    "powerLaw" => ViscosityModel::PowerLaw,
+                    "crossPowerLaw" => ViscosityModel::CrossPowerLaw,
+                    "birdCarreau" => ViscosityModel::BirdCarreau,
+                    "herschelBulkley" => ViscosityModel::HerschelBulkley,
+                    "casson" => ViscosityModel::Casson,
+                    _ => ViscosityModel::Newtonian,
+                };
+                NonNewtonianConfig {
+                    model,
+                    nu0: n.get("nu0").and_then(|v| v.as_f64()).unwrap_or(1e-2),
+                    nu_inf: n.get("nu_inf").and_then(|v| v.as_f64()).unwrap_or(1e-6),
+                    k: n.get("k").and_then(|v| v.as_f64()).unwrap_or(0.005),
+                    n: n.get("n").and_then(|v| v.as_f64()).unwrap_or(0.4),
+                    tau0: n.get("tau0").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                    nu_min: n.get("nu_min").and_then(|v| v.as_f64()).unwrap_or(1e-4),
+                    nu_max: n.get("nu_max").and_then(|v| v.as_f64()).unwrap_or(1e2),
+                }
+            });
+
+            // Build viscoelastic config if provided
+            let viscoelastic = args.get("viscoelastic").map(|v| {
+                let model_str = v.get("model").and_then(|m| m.as_str()).unwrap_or("oldroydB");
+                let model = match model_str {
+                    "giesekus" => ViscoelasticModel::Giesekus,
+                    _ => ViscoelasticModel::OldroydB,
+                };
+                ViscoelasticConfig {
+                    model,
+                    relaxation_time_s: v.get("relaxation_time_s").and_then(|x| x.as_f64()).unwrap_or(1.0),
+                    solvent_viscosity_ratio: v.get("solvent_viscosity_ratio").and_then(|x| x.as_f64()).unwrap_or(0.1),
+                    mobility_factor: v.get("mobility_factor").and_then(|x| x.as_f64()).unwrap_or(0.2),
+                }
+            });
+
+            // Build combustion config if provided
+            let combustion = args.get("combustion").map(|c| {
+                let model_str = c.get("model").and_then(|v| v.as_str()).unwrap_or("edc");
+                let model = match model_str {
+                    "laminarFlamelet" => CombustionModel::LaminarFlamelet,
+                    "paSR" => CombustionModel::PaSR,
+                    "wellStirredReactor" => CombustionModel::WellStirredReactor,
+                    _ => CombustionModel::EDC,
+                };
+                CombustionConfig {
+                    model,
+                    c_eps: c.get("c_eps").and_then(|v| v.as_f64()).unwrap_or(2.1377),
+                    c_mu: c.get("c_mu").and_then(|v| v.as_f64()).unwrap_or(0.09),
+                    oxidizer: c.get("oxidizer").and_then(|v| v.as_str()).unwrap_or("O2").to_string(),
+                    fuel: c.get("fuel").and_then(|v| v.as_str()).unwrap_or("CH4").to_string(),
+                }
+            });
+
+            // Build cavitation config if provided
+            let cavitation = args.get("cavitation").map(|c| {
+                let model_str = c.get("model").and_then(|v| v.as_str()).unwrap_or("schnerrSauer");
+                let model = match model_str {
+                    "kunz" => CavitationModel::Kunz,
+                    "merkle" => CavitationModel::Merkle,
+                    _ => CavitationModel::SchnerrSauer,
+                };
+                CavitationConfig {
+                    model,
+                    p_vap_kpa: c.get("p_vap_kPa").and_then(|v| v.as_f64()).unwrap_or(2.34),
+                    rho_liquid_kg_m3: c.get("rho_liquid_kg_m3").and_then(|v| v.as_f64()).unwrap_or(1000.0),
+                    rho_vapor_kg_m3: c.get("rho_vapor_kg_m3").and_then(|v| v.as_f64()).unwrap_or(0.0258),
+                }
+            });
+
+            // Build spray config if provided
+            let spray = args.get("spray").map(|s| {
+                let breakup_str = s.get("breakup").and_then(|v| v.as_str()).unwrap_or("khrt");
+                let breakup = match breakup_str {
+                    "reitzDiwakar" => SprayBreakupModel::ReitzDiwakar,
+                    "tab" => SprayBreakupModel::TAB,
+                    "pilchErdman" => SprayBreakupModel::PilchErdman,
+                    _ => SprayBreakupModel::KHRT,
+                };
+                let evap_str = s.get("evaporation").and_then(|v| v.as_str()).unwrap_or("standard");
+                let evaporation = match evap_str {
+                    "fuchsKnudsen" => SprayEvaporationModel::FuchsKnudsen,
+                    _ => SprayEvaporationModel::Standard,
+                };
+                SprayConfig {
+                    breakup,
+                    evaporation,
+                    collision: s.get("collision").and_then(|v| v.as_bool()).unwrap_or(true),
+                    parcel_per_second: s.get("parcels_per_second").and_then(|v| v.as_f64()).unwrap_or(1e5),
+                    injection_velocity_m_s: s.get("injection_velocity_m_s").and_then(|v| v.as_f64()).unwrap_or(50.0),
+                    cone_angle_deg: s.get("cone_angle_deg").and_then(|v| v.as_f64()).unwrap_or(15.0),
+                }
+            });
+
+            // Build phase change config if provided
+            let phase_change = args.get("phase_change").map(|p| {
+                let model_str = p.get("model").and_then(|v| v.as_str()).unwrap_or("enthalpyPorosity");
+                let model = match model_str {
+                    "levelSet" => PhaseChangeModel::LevelSet,
+                    _ => PhaseChangeModel::EnthalpyPorosity,
+                };
+                PhaseChangeConfig {
+                    model,
+                    t_solidus_k: p.get("t_solidus_K").and_then(|v| v.as_f64()).unwrap_or(800.0),
+                    t_liquidus_k: p.get("t_liquidus_K").and_then(|v| v.as_f64()).unwrap_or(900.0),
+                    latent_heat_j_kg: p.get("latent_heat_J_kg").and_then(|v| v.as_f64()).unwrap_or(2.5e5),
+                    mushy_constant: p.get("mushy_constant").and_then(|v| v.as_f64()).unwrap_or(1e5),
+                }
+            });
+
+            // Build particle config if provided
+            let particle = args.get("particle").map(|p| {
+                let inj_str = p.get("injection").and_then(|v| v.as_str()).unwrap_or("patch");
+                let injection = match inj_str {
+                    "cone" => ParticleInjection::ConeInjection,
+                    "manual" => ParticleInjection::ManualInjection,
+                    _ => ParticleInjection::PatchInjection,
+                };
+                ParticleConfig {
+                    injection,
+                    diameter_m: p.get("diameter_m").and_then(|v| v.as_f64()).unwrap_or(1e-4),
+                    mass_flow_kg_s: p.get("mass_flow_kg_s").and_then(|v| v.as_f64()).unwrap_or(0.001),
+                    velocity_m_s: p.get("velocity_m_s").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                    temperature_k: p.get("temperature_K").and_then(|v| v.as_f64()).unwrap_or(300.0),
+                    material_density_kg_m3: p.get("density_kg_m3").and_then(|v| v.as_f64()).unwrap_or(2500.0),
+                }
+            });
+
+            // Build porous config if provided
+            let porous = args.get("porous").map(|p| {
+                let model_str = p.get("model").and_then(|v| v.as_str()).unwrap_or("darcy");
+                let model = match model_str {
+                    "darcyForchheimer" => PorousModel::DarcyForchheimer,
+                    _ => PorousModel::Darcy,
+                };
+                let d: Vec<f64> = p.get("d_coeffs")
+                    .and_then(|c| c.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+                    .unwrap_or_default();
+                let f: Vec<f64> = p.get("f_coeffs")
+                    .and_then(|c| c.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+                    .unwrap_or_default();
+                PorousZoneConfig {
+                    model,
+                    cell_zone: p.get("cell_zone").and_then(|v| v.as_str()).unwrap_or("porous").to_string(),
+                    d_coeffs: [d.first().copied().unwrap_or(0.0), d.get(1).copied().unwrap_or(0.0), d.get(2).copied().unwrap_or(0.0)],
+                    f_coeffs: [f.first().copied().unwrap_or(0.0), f.get(1).copied().unwrap_or(0.0), f.get(2).copied().unwrap_or(0.0)],
+                }
+            });
+
+            // Build FSI config if provided
+            let fsi = args.get("fsi").map(|f| {
+                let model_str = f.get("model").and_then(|v| v.as_str()).unwrap_or("linearElastic");
+                let model = match model_str {
+                    "nonLinearGeometric" => FSIModel::NonLinearGeometric,
+                    "plastic" => FSIModel::Plastic,
+                    _ => FSIModel::LinearElastic,
+                };
+                let coup_str = f.get("coupling").and_then(|v| v.as_str()).unwrap_or("dirichletNeumann");
+                let coupling = match coup_str {
+                    "neumannNeumann" => FSICoupling::NeumannNeumann,
+                    "robinRobin" => FSICoupling::RobinRobin,
+                    _ => FSICoupling::DirichletNeumann,
+                };
+                FSIConfig {
+                    model,
+                    coupling,
+                    youngs_modulus_gpa: f.get("youngs_modulus_GPa").and_then(|v| v.as_f64()).unwrap_or(200.0),
+                    poisson_ratio: f.get("poisson_ratio").and_then(|v| v.as_f64()).unwrap_or(0.3),
+                    density_kg_m3: f.get("density_kg_m3").and_then(|v| v.as_f64()).unwrap_or(7800.0),
+                    mesh_relaxation: 0.5,
+                    n_subcycles: 5,
+                }
+            });
+
+            // Build wave config if provided
+            let wave = args.get("wave").map(|w| {
+                let model_str = w.get("model").and_then(|v| v.as_str()).unwrap_or("stokesFirst");
+                let model = match model_str {
+                    "stokesFifth" => WaveModel::StokesFifth,
+                    "irregular" => WaveModel::Irregular,
+                    "streamFunction" => WaveModel::StreamFunction,
+                    _ => WaveModel::StokesFirst,
+                };
+                WaveConfig {
+                    model,
+                    wave_height_m: w.get("wave_height_m").and_then(|v| v.as_f64()).unwrap_or(2.0),
+                    wave_period_s: w.get("wave_period_s").and_then(|v| v.as_f64()).unwrap_or(8.0),
+                    water_depth_m: w.get("water_depth_m").and_then(|v| v.as_f64()).unwrap_or(20.0),
+                    direction_deg: w.get("direction_deg").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    relaxation_zone_length_m: 10.0,
+                }
+            });
+
+            // Build wind turbine config if provided
+            let wind_turbine = args.get("wind_turbine").map(|w| {
+                let act_str = w.get("actuator").and_then(|v| v.as_str()).unwrap_or("disc");
+                let actuator = match act_str {
+                    "line" => ActuatorModel::Line,
+                    "alm" => ActuatorModel::ALM,
+                    _ => ActuatorModel::Disc,
+                };
+                WindTurbineConfig {
+                    actuator,
+                    thrust_coefficient: w.get("thrust_coefficient").and_then(|v| v.as_f64()).unwrap_or(0.8),
+                    power_coefficient: w.get("power_coefficient").and_then(|v| v.as_f64()).unwrap_or(0.45),
+                    rotor_diameter_m: w.get("rotor_diameter_m").and_then(|v| v.as_f64()).unwrap_or(126.0),
+                    hub_height_m: w.get("hub_height_m").and_then(|v| v.as_f64()).unwrap_or(90.0),
+                    wind_speed_ref_m_s: w.get("wind_speed_ref_m_s").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                    rated_power_mw: 5.0,
+                }
+            });
+
+            // Build ablation config if provided
+            let ablation = args.get("ablation").map(|a| {
+                let model_str = a.get("model").and_then(|v| v.as_str()).unwrap_or("surfaceRecession");
+                let model = match model_str {
+                    "charringMaterial" => AblationModel::CharringMaterial,
+                    "pyrolysis" => AblationModel::Pyrolysis,
+                    _ => AblationModel::SurfaceRecession,
+                };
+                AblationConfig {
+                    model,
+                    char_conductivity_w_mk: a.get("char_conductivity_W_mK").and_then(|v| v.as_f64()).unwrap_or(0.5),
+                    virgin_conductivity_w_mk: a.get("virgin_conductivity_W_mK").and_then(|v| v.as_f64()).unwrap_or(2.0),
+                    pyrolysis_gas_enthalpy_j_kg: a.get("pyrolysis_gas_enthalpy_J_kg").and_then(|v| v.as_f64()).unwrap_or(5e6),
+                    recession_rate_coeff: a.get("recession_rate_coeff").and_then(|v| v.as_f64()).unwrap_or(1e-4),
+                    emissivity: a.get("emissivity").and_then(|v| v.as_f64()).unwrap_or(0.85),
+                }
+            });
+
+            // Build electrostatic config if provided
+            let electrostatic = args.get("electrostatic").map(|e| {
+                ElectrostaticConfig {
+                    potential_v: e.get("potential_V").and_then(|v| v.as_f64()).unwrap_or(1e4),
+                    permittivity_f_m: e.get("permittivity_F_m").and_then(|v| v.as_f64()).unwrap_or(8.854e-12),
+                    space_charge_c_m3: e.get("space_charge_C_m3").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    ion_mobility_m2_vs: e.get("ion_mobility_m2_Vs").and_then(|v| v.as_f64()).unwrap_or(2e-4),
+                }
+            });
+
+            // Build aeroacoustic config if provided
+            let aeroacoustic = args.get("aeroacoustic").map(|a| {
+                let src_str = a.get("fwh_source").and_then(|v| v.as_str()).unwrap_or("permeable");
+                let fwh_source = match src_str {
+                    "solid" => FWHSource::SolidSurface,
+                    _ => FWHSource::PermeableSurface,
+                };
+                AeroacousticConfig {
+                    fwh_source,
+                    receiver_positions: a.get("receiver_positions")
+                        .and_then(|p| p.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| {
+                            v.as_object().map(|rp| (
+                                rp.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                                rp.get("y").and_then(|y| y.as_f64()).unwrap_or(0.0),
+                                rp.get("z").and_then(|z| z.as_f64()).unwrap_or(0.0),
+                            ))
+                        }).collect())
+                        .unwrap_or_default(),
+                    start_time: a.get("start_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    density_far: a.get("density_far").and_then(|v| v.as_f64()).unwrap_or(1.225),
+                    speed_of_sound: a.get("speed_of_sound").and_then(|v| v.as_f64()).unwrap_or(340.0),
+                }
+            });
+
             let manifest = json!({
                 "iteration": iteration,
                 "goal": args["goal"],
@@ -760,6 +1211,21 @@ pub async fn execute_tool(
                 "ml_surrogate": args.get("ml_surrogate"),
                 "pemfc": args.get("pemfc"),
                 "wind_tunnel": args.get("wind_tunnel"),
+                "multiphase": args.get("multiphase"),
+                "non_newtonian": args.get("non_newtonian"),
+                "viscoelastic": args.get("viscoelastic"),
+                "combustion": args.get("combustion"),
+                "cavitation": args.get("cavitation"),
+                "spray": args.get("spray"),
+                "phase_change": args.get("phase_change"),
+                "particle": args.get("particle"),
+                "porous": args.get("porous"),
+                "aeroacoustic": args.get("aeroacoustic"),
+                "fsi": args.get("fsi"),
+                "wave": args.get("wave"),
+                "wind_turbine": args.get("wind_turbine"),
+                "electrostatic": args.get("electrostatic"),
+                "ablation": args.get("ablation"),
                 "flow_type": if wind_tunnel.is_some() { "ExternalWindTunnel" } else { args.get("flow_type").and_then(|s| s.as_str()).unwrap_or("External") },
                 "created_at": chrono::Utc::now().to_rfc3339(),
             });
@@ -797,6 +1263,25 @@ pub async fn execute_tool(
                         mhd,
                         pemfc: pemfc.clone(),
                         wind_tunnel: wind_tunnel.clone(),
+                        multiphase: multiphase.clone(),
+                        non_newtonian: non_newtonian.clone(),
+                        viscoelastic: viscoelastic.clone(),
+                        combustion: combustion.clone(),
+                        cavitation: cavitation.clone(),
+                        spray: spray.clone(),
+                        phase_change: phase_change.clone(),
+                        particle: particle.clone(),
+                        porous: porous.clone(),
+                        aeroacoustic: aeroacoustic.clone(),
+                        fsi: fsi.clone(),
+                        wave: wave.clone(),
+                        wind_turbine: wind_turbine.clone(),
+                        electrostatic: electrostatic.clone(),
+                        ablation: ablation.clone(),
+                        propulsion: propulsion.clone(),
+                        nuclear: nuclear.clone(),
+                        marine: marine.clone(),
+                        ml_surrogate: ml_surrogate.clone(),
                     };
                     let control_dict = cfg.generate_control_dict(&intake);
                     let solver = args["solver"].as_str().unwrap_or("simpleFoam");
@@ -889,6 +1374,81 @@ RAS
                         std::fs::write(case_dir.join("constant").join("degradationProperties"), cfg.generate_pemfc_degradation(pc)).ok();
                         let mesh_dict = cfg.generate_pemfc_mesh(pc);
                         std::fs::write(case_dir.join("system").join("blockMeshDict"), &mesh_dict).ok();
+                    }
+
+                    // Write multiphase dicts if applicable
+                    if let Some(ref mc) = multiphase {
+                        std::fs::write(case_dir.join("constant").join("multiphaseProperties"), cfg.generate_multiphase_transport(mc)).ok();
+                    }
+
+                    // Write non-Newtonian dicts if applicable
+                    if let Some(ref nn) = non_newtonian {
+                        std::fs::write(case_dir.join("constant").join("nonNewtonianProperties"), cfg.generate_non_newtonian_transport(nn)).ok();
+                    }
+
+                    // Write viscoelastic dicts if applicable
+                    if let Some(ref ve) = viscoelastic {
+                        std::fs::write(case_dir.join("constant").join("viscoelasticProperties"), cfg.generate_viscoelastic_transport(ve)).ok();
+                    }
+
+                    // Write combustion dicts if applicable
+                    if let Some(ref cc) = combustion {
+                        std::fs::write(case_dir.join("constant").join("combustionProperties"), cfg.generate_combustion_chemistry(cc)).ok();
+                    }
+
+                    // Write cavitation dicts if applicable
+                    if let Some(ref cv) = cavitation {
+                        std::fs::write(case_dir.join("constant").join("cavitationProperties"), cfg.generate_cavitation_properties(cv)).ok();
+                    }
+
+                    // Write spray dicts if applicable
+                    if let Some(ref sp) = spray {
+                        std::fs::write(case_dir.join("constant").join("sprayProperties"), cfg.generate_spray_properties(sp)).ok();
+                    }
+
+                    // Write phase change dicts if applicable
+                    if let Some(ref pc2) = phase_change {
+                        std::fs::write(case_dir.join("constant").join("phaseChangeProperties"), cfg.generate_phase_change_properties(pc2)).ok();
+                    }
+
+                    // Write particle dicts if applicable
+                    if let Some(ref pt) = particle {
+                        std::fs::write(case_dir.join("constant").join("particleProperties"), cfg.generate_particle_injection(pt, "defaultCloud")).ok();
+                    }
+
+                    // Write porous dicts if applicable
+                    if let Some(ref pr) = porous {
+                        std::fs::write(case_dir.join("constant").join("porousZones"), cfg.generate_porous_fv_options(pr)).ok();
+                    }
+
+                    // Write aeroacoustic dicts if applicable
+                    if let Some(ref ac) = aeroacoustic {
+                        std::fs::write(case_dir.join("system").join("aeroacousticFunctions"), cfg.generate_aeroacoustics_functions(ac)).ok();
+                    }
+
+                    // Write FSI dicts if applicable
+                    if let Some(ref fi) = fsi {
+                        std::fs::write(case_dir.join("constant").join("fsiProperties"), cfg.generate_fsi_dict(fi)).ok();
+                    }
+
+                    // Write wave dicts if applicable
+                    if let Some(ref wv) = wave {
+                        std::fs::write(case_dir.join("constant").join("waveProperties"), cfg.generate_wave_properties(wv)).ok();
+                    }
+
+                    // Write wind turbine dicts if applicable
+                    if let Some(ref wt) = wind_turbine {
+                        std::fs::write(case_dir.join("system").join("windTurbineProperties"), cfg.generate_actuator_fv_options(wt)).ok();
+                    }
+
+                    // Write electrostatic dicts if applicable
+                    if let Some(ref es) = electrostatic {
+                        std::fs::write(case_dir.join("constant").join("electrostaticProperties"), cfg.generate_electrostatic_transport(es)).ok();
+                    }
+
+                    // Write ablation dicts if applicable
+                    if let Some(ref ab) = ablation {
+                        std::fs::write(case_dir.join("constant").join("ablationProperties"), cfg.generate_ablation_properties(ab)).ok();
                     }
                 }
             }
@@ -1613,5 +2173,359 @@ mod tests {
         let second = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         assert_eq!(first, 1, "First call should return 1");
         assert_eq!(second, 2, "Second call should return 2");
+    }
+
+    // ── Schema & Config Parsing Tests ──────────────────────────
+
+    #[test]
+    fn test_propose_config_schema_has_mixed_media_fields() {
+        let tools = get_all_tools();
+        let propose = tools.iter().find(|t| t.name == "propose_config").unwrap();
+        let props = propose.input_schema["properties"].as_object().unwrap();
+        for &field in &[
+            "multiphase", "non_newtonian", "viscoelastic", "combustion",
+            "cavitation", "spray", "phase_change", "particle", "porous",
+            "aeroacoustic", "fsi", "wave", "wind_turbine", "electrostatic", "ablation",
+        ] {
+            assert!(props.contains_key(field),
+                "propose_config schema missing field: {}", field);
+        }
+    }
+
+    #[test]
+    fn test_propose_config_schema_has_required_fields() {
+        let tools = get_all_tools();
+        let propose = tools.iter().find(|t| t.name == "propose_config").unwrap();
+        let required = propose.input_schema["required"].as_array().unwrap();
+        let req_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        for &field in &["case_id", "goal", "geometry_type", "flow_type", "mach", "reynolds", "mesh_params", "solver"] {
+            assert!(req_strs.contains(&field), "Missing required field: {}", field);
+        }
+    }
+
+    #[test]
+    fn test_propose_config_schema_multiphase_accepts_variants() {
+        let tools = get_all_tools();
+        let propose = tools.iter().find(|t| t.name == "propose_config").unwrap();
+        let model_enum = &propose.input_schema["properties"]["multiphase"]["properties"]["model"]["enum"];
+        let variants: Vec<&str> = model_enum.as_array().unwrap().iter()
+            .filter_map(|v| v.as_str()).collect();
+        for &v in &["vof", "eulerEuler", "driftFlux"] {
+            assert!(variants.contains(&v), "Missing multiphase model variant: {}", v);
+        }
+    }
+
+    #[test]
+    fn test_propose_config_schema_combustion_accepts_variants() {
+        let tools = get_all_tools();
+        let propose = tools.iter().find(|t| t.name == "propose_config").unwrap();
+        let model_enum = &propose.input_schema["properties"]["combustion"]["properties"]["model"]["enum"];
+        let variants: Vec<&str> = model_enum.as_array().unwrap().iter()
+            .filter_map(|v| v.as_str()).collect();
+        for &v in &["edc", "laminarFlamelet", "paSR", "wellStirredReactor"] {
+            assert!(variants.contains(&v), "Missing combustion variant: {}", v);
+        }
+    }
+
+    #[test]
+    fn test_propose_config_schema_requires_only_eight_fields() {
+        let tools = get_all_tools();
+        let propose = tools.iter().find(|t| t.name == "propose_config").unwrap();
+        let required = propose.input_schema["required"].as_array().unwrap();
+        assert_eq!(required.len(), 8, "Expected 8 required fields, got {}", required.len());
+    }
+
+    #[test]
+    fn test_multiphase_config_parsed_from_json_matches_pattern() {
+        let args = json!({
+            "multiphase": {
+                "model": "vof",
+                "n_phases": 2,
+                "surface_tension_N_m": 0.072,
+                "phase_names": ["water", "air"]
+            }
+        });
+        // Replicate the handler parsing pattern
+        let parsed = args.get("multiphase").map(|m| {
+            let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+            let model = match model_str {
+                "eulerEuler" => aeroflow_core::types::MultiphaseModel::EulerEuler,
+                "driftFlux" => aeroflow_core::types::MultiphaseModel::DriftFlux,
+                _ => aeroflow_core::types::MultiphaseModel::VOF,
+            };
+            aeroflow_core::types::MultiphaseConfig {
+                model,
+                n_phases: m.get("n_phases").and_then(|v| v.as_u64()).unwrap_or(2) as u32,
+                surface_tension_n_m: m.get("surface_tension_N_m").and_then(|v| v.as_f64()).unwrap_or(0.07),
+                phase_names: m.get("phase_names")
+                    .and_then(|p| p.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_else(|| vec!["phase1".into(), "phase2".into()]),
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::MultiphaseModel::VOF);
+        assert_eq!(cfg.n_phases, 2);
+        assert_eq!(cfg.surface_tension_n_m, 0.072);
+        assert_eq!(cfg.phase_names, vec!["water", "air"]);
+    }
+
+    #[test]
+    fn test_multiphase_config_defaults_applied() {
+        let args = json!({});
+        let parsed = args.get("multiphase").map(|m| {
+            let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+            let model = match model_str {
+                "eulerEuler" => aeroflow_core::types::MultiphaseModel::EulerEuler,
+                "driftFlux" => aeroflow_core::types::MultiphaseModel::DriftFlux,
+                _ => aeroflow_core::types::MultiphaseModel::VOF,
+            };
+            aeroflow_core::types::MultiphaseConfig {
+                model,
+                n_phases: m.get("n_phases").and_then(|v| v.as_u64()).unwrap_or(2) as u32,
+                surface_tension_n_m: m.get("surface_tension_N_m").and_then(|v| v.as_f64()).unwrap_or(0.07),
+                phase_names: m.get("phase_names")
+                    .and_then(|p| p.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_else(|| vec!["phase1".into(), "phase2".into()]),
+            }
+        });
+        // When multiphase key is absent, parsed should be None
+        assert!(parsed.is_none(), "absent multiphase key should produce None");
+    }
+
+    #[test]
+    fn test_multiphase_defaults_when_key_present_but_empty() {
+        let args = json!({"multiphase": {}});
+        let parsed = args.get("multiphase").map(|m| {
+            let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+            let model = match model_str {
+                "eulerEuler" => aeroflow_core::types::MultiphaseModel::EulerEuler,
+                "driftFlux" => aeroflow_core::types::MultiphaseModel::DriftFlux,
+                _ => aeroflow_core::types::MultiphaseModel::VOF,
+            };
+            aeroflow_core::types::MultiphaseConfig {
+                model,
+                n_phases: m.get("n_phases").and_then(|v| v.as_u64()).unwrap_or(2) as u32,
+                surface_tension_n_m: m.get("surface_tension_N_m").and_then(|v| v.as_f64()).unwrap_or(0.07),
+                phase_names: m.get("phase_names")
+                    .and_then(|p| p.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_else(|| vec!["phase1".into(), "phase2".into()]),
+            }
+        });
+        assert!(parsed.is_some(), "empty multiphase object should still parse");
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::MultiphaseModel::VOF);
+        assert_eq!(cfg.n_phases, 2);
+        assert!((cfg.surface_tension_n_m - 0.07).abs() < 1e-9);
+        assert_eq!(cfg.phase_names, vec!["phase1", "phase2"]);
+    }
+
+    #[test]
+    fn test_non_newtonian_config_from_json() {
+        let args = json!({
+            "non_newtonian": {
+                "model": "powerLaw",
+                "nu0": 0.01,
+                "k": 0.005,
+                "n": 0.4
+            }
+        });
+        let parsed = args.get("non_newtonian").map(|n| {
+            let model_str = n.get("model").and_then(|v| v.as_str()).unwrap_or("newtonian");
+            let model = match model_str {
+                "powerLaw" => aeroflow_core::types::ViscosityModel::PowerLaw,
+                "crossPowerLaw" => aeroflow_core::types::ViscosityModel::CrossPowerLaw,
+                "birdCarreau" => aeroflow_core::types::ViscosityModel::BirdCarreau,
+                "herschelBulkley" => aeroflow_core::types::ViscosityModel::HerschelBulkley,
+                "casson" => aeroflow_core::types::ViscosityModel::Casson,
+                _ => aeroflow_core::types::ViscosityModel::Newtonian,
+            };
+            aeroflow_core::types::NonNewtonianConfig {
+                model,
+                nu0: n.get("nu0").and_then(|v| v.as_f64()).unwrap_or(1e-2),
+                nu_inf: n.get("nu_inf").and_then(|v| v.as_f64()).unwrap_or(1e-6),
+                k: n.get("k").and_then(|v| v.as_f64()).unwrap_or(0.005),
+                n: n.get("n").and_then(|v| v.as_f64()).unwrap_or(0.4),
+                tau0: n.get("tau0").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                nu_min: n.get("nu_min").and_then(|v| v.as_f64()).unwrap_or(1e-4),
+                nu_max: n.get("nu_max").and_then(|v| v.as_f64()).unwrap_or(1e2),
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::ViscosityModel::PowerLaw);
+        assert!((cfg.nu0 - 0.01).abs() < 1e-9);
+        assert!((cfg.k - 0.005).abs() < 1e-9);
+        assert!((cfg.n - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_combustion_config_from_json() {
+        let args = json!({
+            "combustion": {
+                "model": "paSR",
+                "fuel": "H2",
+                "oxidizer": "O2"
+            }
+        });
+        let parsed = args.get("combustion").map(|c| {
+            let model_str = c.get("model").and_then(|v| v.as_str()).unwrap_or("edc");
+            let model = match model_str {
+                "laminarFlamelet" => aeroflow_core::types::CombustionModel::LaminarFlamelet,
+                "paSR" => aeroflow_core::types::CombustionModel::PaSR,
+                "wellStirredReactor" => aeroflow_core::types::CombustionModel::WellStirredReactor,
+                _ => aeroflow_core::types::CombustionModel::EDC,
+            };
+            aeroflow_core::types::CombustionConfig {
+                model,
+                c_eps: c.get("c_eps").and_then(|v| v.as_f64()).unwrap_or(2.1377),
+                c_mu: c.get("c_mu").and_then(|v| v.as_f64()).unwrap_or(0.09),
+                oxidizer: c.get("oxidizer").and_then(|v| v.as_str()).unwrap_or("O2").to_string(),
+                fuel: c.get("fuel").and_then(|v| v.as_str()).unwrap_or("CH4").to_string(),
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::CombustionModel::PaSR);
+        assert_eq!(cfg.fuel, "H2");
+        assert_eq!(cfg.oxidizer, "O2");
+    }
+
+    #[test]
+    fn test_fsi_config_from_json() {
+        let args = json!({
+            "fsi": {
+                "model": "linearElastic",
+                "coupling": "dirichletNeumann",
+                "youngs_modulus_GPa": 210.0,
+                "poisson_ratio": 0.3,
+                "density_kg_m3": 7850.0
+            }
+        });
+        let parsed = args.get("fsi").map(|f| {
+            let model_str = f.get("model").and_then(|v| v.as_str()).unwrap_or("linearElastic");
+            let model = match model_str {
+                "nonLinearGeometric" => aeroflow_core::types::FSIModel::NonLinearGeometric,
+                "plastic" => aeroflow_core::types::FSIModel::Plastic,
+                _ => aeroflow_core::types::FSIModel::LinearElastic,
+            };
+            let coup_str = f.get("coupling").and_then(|v| v.as_str()).unwrap_or("dirichletNeumann");
+            let coupling = match coup_str {
+                "neumannNeumann" => aeroflow_core::types::FSICoupling::NeumannNeumann,
+                "robinRobin" => aeroflow_core::types::FSICoupling::RobinRobin,
+                _ => aeroflow_core::types::FSICoupling::DirichletNeumann,
+            };
+            aeroflow_core::types::FSIConfig {
+                model,
+                coupling,
+                youngs_modulus_gpa: f.get("youngs_modulus_GPa").and_then(|v| v.as_f64()).unwrap_or(200.0),
+                poisson_ratio: f.get("poisson_ratio").and_then(|v| v.as_f64()).unwrap_or(0.3),
+                density_kg_m3: f.get("density_kg_m3").and_then(|v| v.as_f64()).unwrap_or(7800.0),
+                mesh_relaxation: 0.5,
+                n_subcycles: 5,
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::FSIModel::LinearElastic);
+        assert!((cfg.youngs_modulus_gpa - 210.0).abs() < 1e-9);
+        assert!((cfg.poisson_ratio - 0.3).abs() < 1e-9);
+        assert!((cfg.density_kg_m3 - 7850.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_wind_turbine_config_from_json() {
+        let args = json!({
+            "wind_turbine": {
+                "actuator": "alm",
+                "thrust_coefficient": 0.75,
+                "power_coefficient": 0.42,
+                "rotor_diameter_m": 150.0,
+                "hub_height_m": 100.0,
+                "wind_speed_ref_m_s": 12.0
+            }
+        });
+        let parsed = args.get("wind_turbine").map(|w| {
+            let act_str = w.get("actuator").and_then(|v| v.as_str()).unwrap_or("disc");
+            let actuator = match act_str {
+                "line" => aeroflow_core::types::ActuatorModel::Line,
+                "alm" => aeroflow_core::types::ActuatorModel::ALM,
+                _ => aeroflow_core::types::ActuatorModel::Disc,
+            };
+            aeroflow_core::types::WindTurbineConfig {
+                actuator,
+                thrust_coefficient: w.get("thrust_coefficient").and_then(|v| v.as_f64()).unwrap_or(0.8),
+                power_coefficient: w.get("power_coefficient").and_then(|v| v.as_f64()).unwrap_or(0.45),
+                rotor_diameter_m: w.get("rotor_diameter_m").and_then(|v| v.as_f64()).unwrap_or(126.0),
+                hub_height_m: w.get("hub_height_m").and_then(|v| v.as_f64()).unwrap_or(90.0),
+                wind_speed_ref_m_s: w.get("wind_speed_ref_m_s").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                rated_power_mw: 5.0,
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.actuator, aeroflow_core::types::ActuatorModel::ALM);
+        assert!((cfg.thrust_coefficient - 0.75).abs() < 1e-9);
+        assert!((cfg.rotor_diameter_m - 150.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_wave_config_defaults_from_empty_json() {
+        let args = json!({"wave": {}});
+        let parsed = args.get("wave").map(|w| {
+            let model_str = w.get("model").and_then(|v| v.as_str()).unwrap_or("stokesFirst");
+            let model = match model_str {
+                "stokesFifth" => aeroflow_core::types::WaveModel::StokesFifth,
+                "irregular" => aeroflow_core::types::WaveModel::Irregular,
+                "streamFunction" => aeroflow_core::types::WaveModel::StreamFunction,
+                _ => aeroflow_core::types::WaveModel::StokesFirst,
+            };
+            aeroflow_core::types::WaveConfig {
+                model,
+                wave_height_m: w.get("wave_height_m").and_then(|v| v.as_f64()).unwrap_or(2.0),
+                wave_period_s: w.get("wave_period_s").and_then(|v| v.as_f64()).unwrap_or(8.0),
+                water_depth_m: w.get("water_depth_m").and_then(|v| v.as_f64()).unwrap_or(20.0),
+                direction_deg: w.get("direction_deg").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                relaxation_zone_length_m: 10.0,
+            }
+        });
+        assert!(parsed.is_some());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.model, aeroflow_core::types::WaveModel::StokesFirst);
+        assert!((cfg.wave_height_m - 2.0).abs() < 1e-9);
+        assert!((cfg.wave_period_s - 8.0).abs() < 1e-9);
+        assert!((cfg.water_depth_m - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_particle_config_injection_variants() {
+        for (inject_str, expected) in [
+            ("patch", aeroflow_core::types::ParticleInjection::PatchInjection),
+            ("cone", aeroflow_core::types::ParticleInjection::ConeInjection),
+            ("manual", aeroflow_core::types::ParticleInjection::ManualInjection),
+        ] {
+            let args = json!({"particle": {"injection": inject_str}});
+            let parsed = args.get("particle").map(|p| {
+                let inj_str = p.get("injection").and_then(|v| v.as_str()).unwrap_or("patch");
+                let injection = match inj_str {
+                    "cone" => aeroflow_core::types::ParticleInjection::ConeInjection,
+                    "manual" => aeroflow_core::types::ParticleInjection::ManualInjection,
+                    _ => aeroflow_core::types::ParticleInjection::PatchInjection,
+                };
+                aeroflow_core::types::ParticleConfig {
+                    injection,
+                    diameter_m: p.get("diameter_m").and_then(|v| v.as_f64()).unwrap_or(1e-4),
+                    mass_flow_kg_s: p.get("mass_flow_kg_s").and_then(|v| v.as_f64()).unwrap_or(0.001),
+                    velocity_m_s: p.get("velocity_m_s").and_then(|v| v.as_f64()).unwrap_or(10.0),
+                    temperature_k: p.get("temperature_K").and_then(|v| v.as_f64()).unwrap_or(300.0),
+                    material_density_kg_m3: p.get("density_kg_m3").and_then(|v| v.as_f64()).unwrap_or(2500.0),
+                }
+            });
+            assert!(parsed.is_some(), "failed for inject_str={}", inject_str);
+            assert_eq!(parsed.unwrap().injection, expected, "injection variant mismatch for {}", inject_str);
+        }
     }
 }
