@@ -1,13 +1,14 @@
 use aeroflow_core::{
     metrics, CreateUserRequest, SettingsManager, SystemEvent, User, UserRole,
 };
+mod chat;
 use aeroflow_pipeline::PipelineOrchestrator;
 use aeroflow_skills::{GeometryFingerprint, SkillsDb, UserManager};
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{sse::Event, Json, Sse},
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use chrono::Utc;
@@ -100,6 +101,7 @@ struct ApiError {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Pagination {
     limit: Option<i64>,
     offset: Option<i64>,
@@ -210,7 +212,7 @@ async fn login(
             )
         })?;
 
-    let token = encode_token(&user.id.to_string(), &user.role.label()).map_err(|e| {
+    let token = encode_token(&user.id.to_string(), user.role.label()).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiError {
@@ -523,7 +525,7 @@ async fn create_case(
         "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0}, "velocity": 10},
         "created_at": Utc::now().to_rfc3339(),
     });
-    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("serialization of Value is infallible")).ok();
 
     let _ = state.event_tx.send(SystemEvent::info(
         Some(case_id),
@@ -619,7 +621,7 @@ async fn upload_stl(
         "flow_direction": {"position": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0}, "velocity": 10},
         "created_at": Utc::now().to_rfc3339(),
     });
-    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("serialization of Value is infallible")).ok();
 
     let _ = state.event_tx.send(SystemEvent::info(
         Some(case_id),
@@ -659,12 +661,12 @@ async fn update_case(
                 std::fs::rename(&case_dir, &new_dir).ok();
                 // Update manifest
                 if let Ok(mut manifest) = std::fs::read_to_string(new_dir.join("manifest.json"))
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(std::io::Error::other))
                 {
                     if let Some(obj) = manifest.as_object_mut() {
                         obj.insert("name".into(), serde_json::Value::String(new_name.clone()));
                     }
-                    std::fs::write(new_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+                    std::fs::write(new_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("serialization of Value is infallible")).ok();
                 }
                 // Update DB
                 state.db.update_case_name(id, new_name).await.map_err(|e| {
@@ -675,25 +677,24 @@ async fn update_case(
             if let Some(ref flow_dir) = req.flow_direction {
                 // Update manifest
                 if let Ok(mut manifest) = std::fs::read_to_string(case_dir.join("manifest.json"))
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(std::io::Error::other))
                 {
                     if let Some(obj) = manifest.as_object_mut() {
                         obj.insert("flow_direction".into(), flow_dir.clone());
                     }
-                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("serialization of Value is infallible")).ok();
                 }
             }
 
-            if let Some(ref mrf) = req.mrf_zone {
-                if let Ok(mut manifest) = std::fs::read_to_string(case_dir.join("manifest.json"))
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+            if let Some(ref mrf) = req.mrf_zone
+                && let Ok(mut manifest) = std::fs::read_to_string(case_dir.join("manifest.json"))
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).map_err(std::io::Error::other))
                 {
                     if let Some(obj) = manifest.as_object_mut() {
                         obj.insert("mrf_zone".into(), mrf.clone());
                     }
-                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).unwrap()).ok();
+                    std::fs::write(case_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest).expect("serialization of Value is infallible")).ok();
                 }
-            }
 
             Ok(Json(ApiResponse {
                 success: true,
@@ -770,7 +771,7 @@ async fn approve_stage(
 
             if let Some(ref params) = req.params {
                 let params_path = case_dir.join(format!("approved_{}.json", req.stage.to_lowercase()));
-                std::fs::write(&params_path, serde_json::to_string_pretty(params).unwrap()).ok();
+                std::fs::write(&params_path, serde_json::to_string_pretty(params).expect("serialization of Value is infallible")).ok();
             }
 
             let _ = state.event_tx.send(SystemEvent::info(
@@ -819,7 +820,7 @@ async fn run_case(
             })?;
 
             let cid = orch.register_case_with_id(&c.name, id);
-            match orch.run_pipeline(cid, &case_dir, c.solver.as_deref().unwrap_or("simpleFoam"), None, None) {
+            match orch.run_pipeline(cid, &case_dir, c.solver.as_deref().unwrap_or("simpleFoam"), None, None, None) {
                 Ok(result) => Ok(Json(ApiResponse {
                     success: true,
                     data: serde_json::json!({ "case_id": id, "status": format!("{:?}", result.stage) }),
@@ -879,10 +880,10 @@ async fn events_handler(
     Ok(Sse::new(stream))
 }
 
-fn read_forces(case_dir: &PathBuf) -> Option<serde_json::Value> {
+fn read_forces(case_dir: &std::path::Path) -> Option<serde_json::Value> {
     let path = case_dir.join("postProcessing/forceCoeffs/0/coefficient.dat");
     let data = std::fs::read_to_string(path).ok()?;
-    let last_line = data.lines().filter(|l| !l.starts_with('#')).last()?;
+    let last_line = data.lines().rfind(|l| !l.starts_with('#'))?;
     let parts: Vec<&str> = last_line.split_whitespace().collect();
     if parts.len() >= 6 {
         Some(serde_json::json!({
@@ -895,20 +896,20 @@ fn read_forces(case_dir: &PathBuf) -> Option<serde_json::Value> {
     }
 }
 
-fn read_mesh_quality(case_dir: &PathBuf) -> Option<serde_json::Value> {
+fn read_mesh_quality(case_dir: &std::path::Path) -> Option<serde_json::Value> {
     let log_path = case_dir.join("logs/checkMesh.log");
     let log = std::fs::read_to_string(log_path).ok()?;
 
     let n_cells = log.lines()
         .find(|l| l.contains("cells:"))
         .and_then(|l| l.split(':').nth(1))
-        .and_then(|s| s.trim().split_whitespace().next())
+        .and_then(|s| s.split_whitespace().next())
         .and_then(|s| s.parse::<u64>().ok());
 
     let max_non_ortho = log.lines()
         .find(|l| l.contains("Max non-orthogonality"))
         .and_then(|l| l.split(':').nth(1))
-        .and_then(|s| s.trim().split_whitespace().next())
+        .and_then(|s| s.split_whitespace().next())
         .and_then(|s| s.parse::<f64>().ok());
 
     Some(serde_json::json!({
@@ -917,7 +918,7 @@ fn read_mesh_quality(case_dir: &PathBuf) -> Option<serde_json::Value> {
     }))
 }
 
-fn read_iterations(case_dir: &PathBuf) -> Option<serde_json::Value> {
+fn read_iterations(case_dir: &std::path::Path) -> Option<serde_json::Value> {
     let path = case_dir.join("postProcessing/forceCoeffs/0/coefficient.dat");
     let data = std::fs::read_to_string(path).ok()?;
     let lines: Vec<&str> = data.lines().filter(|l| !l.starts_with('#')).collect();
@@ -936,6 +937,12 @@ fn read_iterations(case_dir: &PathBuf) -> Option<serde_json::Value> {
 
 pub struct WebApi {
     frontend_path: Option<PathBuf>,
+}
+
+impl Default for WebApi {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WebApi {
@@ -998,7 +1005,8 @@ impl WebApi {
             .route("/api/cases/{id}/run", post(run_case))
             .route("/api/cases/{id}/approve", post(approve_stage))
             .route("/api/users", get(list_users))
-            .route("/api/events", get(events_handler));
+            .route("/api/events", get(events_handler))
+            .merge(chat::chat_routes());
 
         let mut app = Router::new()
             .merge(metrics_route)
@@ -1023,5 +1031,220 @@ impl WebApi {
         axum::serve(listener, app).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use std::path::PathBuf;
+
+    struct TempCase {
+        path: PathBuf,
+    }
+
+    impl TempCase {
+        fn new() -> Self {
+            let base = std::env::temp_dir();
+            let dir_name = format!("aeroflow_test_{}", uuid::Uuid::new_v4());
+            let path = base.join(dir_name);
+            std::fs::create_dir_all(&path).unwrap();
+            TempCase { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        fn write_file(&self, rel: &str, content: &str) {
+            let full = self.path.join(rel);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&full, content).unwrap();
+        }
+    }
+
+    impl Drop for TempCase {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.path).ok();
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    //  JWT tests
+    // ═══════════════════════════════════════════
+
+    #[test]
+    fn test_encode_token_returns_three_segments() {
+        let token = encode_token("user-1", "admin").unwrap();
+        let segments: Vec<&str> = token.split('.').collect();
+        assert_eq!(segments.len(), 3);
+        for s in &segments {
+            assert!(!s.is_empty(), "each JWT segment must be non-empty");
+        }
+    }
+
+    #[test]
+    fn test_jwt_roundtrip() {
+        let token = encode_token("user-42", "engineer").unwrap();
+        let claims = decode_token(&token).unwrap();
+        assert_eq!(claims.sub, "user-42");
+        assert_eq!(claims.role, "engineer");
+        assert_eq!(claims.exp - claims.iat, 86400);
+    }
+
+    #[test]
+    fn test_decode_token_rejects_malformed() {
+        let result = decode_token("not-a-jwt-token");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_token_rejects_tampered() {
+        let token = encode_token("user-1", "admin").unwrap();
+        let parts: Vec<&str> = token.split('.').collect();
+        let tampered = format!("{}.tampered.{}", parts[0], parts[2]);
+        let result = decode_token(&tampered);
+        assert!(result.is_err());
+    }
+
+    // ═══════════════════════════════════════════
+    //  require_admin tests
+    // ═══════════════════════════════════════════
+
+    #[test]
+    fn test_require_admin_passes_for_admin() {
+        let claims = Claims {
+            sub: "admin-user".into(),
+            exp: 9_999_999_999,
+            iat: 0,
+            role: "admin".into(),
+        };
+        assert!(require_admin(&claims).is_ok());
+    }
+
+    #[test]
+    fn test_require_admin_fails_for_engineer() {
+        let claims = Claims {
+            sub: "eng-user".into(),
+            exp: 9_999_999_999,
+            iat: 0,
+            role: "engineer".into(),
+        };
+        let err = require_admin(&claims).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(err.1 .0.error, "Admin access required");
+    }
+
+    #[test]
+    fn test_require_admin_fails_for_viewer() {
+        let claims = Claims {
+            sub: "view-user".into(),
+            exp: 9_999_999_999,
+            iat: 0,
+            role: "viewer".into(),
+        };
+        let err = require_admin(&claims).unwrap_err();
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+
+    // ═══════════════════════════════════════════
+    //  read_forces tests
+    // ═══════════════════════════════════════════
+
+    #[test]
+    fn test_read_forces_returns_values() {
+        let tc = TempCase::new();
+        tc.write_file(
+            "postProcessing/forceCoeffs/0/coefficient.dat",
+            "# Time col1 col2 col3 col4 col5 col6\n0.0 10.0 20.0 30.0 40.0 50.0 60.0\n1.0 11.0 21.0 31.0 41.0 51.0 61.0\n",
+        );
+        let result = read_forces(tc.path()).unwrap();
+        assert_eq!(result["cd"], serde_json::json!(11.0));
+        assert_eq!(result["cl"], serde_json::json!(31.0));
+        assert_eq!(result["cm"], serde_json::json!(51.0));
+    }
+
+    #[test]
+    fn test_read_forces_returns_none_when_file_missing() {
+        let tc = TempCase::new();
+        assert!(read_forces(tc.path()).is_none());
+    }
+
+    #[test]
+    fn test_read_forces_returns_none_when_fewer_than_6_columns() {
+        let tc = TempCase::new();
+        tc.write_file(
+            "postProcessing/forceCoeffs/0/coefficient.dat",
+            "# Time Cd Cl Cm\n0.0 0.123 0.456 0.789\n",
+        );
+        assert!(read_forces(tc.path()).is_none());
+    }
+
+    // ═══════════════════════════════════════════
+    //  read_mesh_quality tests
+    // ═══════════════════════════════════════════
+
+    #[test]
+    fn test_read_mesh_quality_returns_values() {
+        let tc = TempCase::new();
+        tc.write_file(
+            "logs/checkMesh.log",
+            "Mesh stats\n...\nMin determinant = 0.850\nMax non-orthogonality: 45.2\nAverage non-orthogonality = 8.1\nMax skewness = 2.3\ncells: 123456\n",
+        );
+        let result = read_mesh_quality(tc.path()).unwrap();
+        assert_eq!(result["n_cells"], serde_json::json!(123456));
+        assert_eq!(result["max_non_orthogonality"], serde_json::json!(45.2));
+    }
+
+    #[test]
+    fn test_read_mesh_quality_returns_none_when_log_missing() {
+        let tc = TempCase::new();
+        assert!(read_mesh_quality(tc.path()).is_none());
+    }
+
+    #[test]
+    fn test_read_mesh_quality_handles_missing_fields() {
+        let tc = TempCase::new();
+        tc.write_file("logs/checkMesh.log", "unrelated content\nno data here\n");
+        let result = read_mesh_quality(tc.path()).unwrap();
+        assert!(result["n_cells"].is_null());
+        assert!(result["max_non_orthogonality"].is_null());
+    }
+
+    // ═══════════════════════════════════════════
+    //  read_iterations tests
+    // ═══════════════════════════════════════════
+
+    #[test]
+    fn test_read_iterations_returns_values() {
+        let tc = TempCase::new();
+        tc.write_file(
+            "postProcessing/forceCoeffs/0/coefficient.dat",
+            "# Time col1 col2 col3 col4 col5 col6\n0.0 10.0 20.0 30.0 40.0 50.0 60.0\n1.0 11.0 21.0 31.0 41.0 51.0 61.0\n",
+        );
+        let result = read_iterations(tc.path()).unwrap();
+        assert_eq!(result["iterations"], serde_json::json!(2));
+        assert_eq!(result["last_time"], serde_json::json!(1.0));
+    }
+
+    #[test]
+    fn test_read_iterations_returns_none_when_file_missing() {
+        let tc = TempCase::new();
+        assert!(read_iterations(tc.path()).is_none());
+    }
+
+    #[test]
+    fn test_read_iterations_skips_comment_lines() {
+        let tc = TempCase::new();
+        tc.write_file(
+            "postProcessing/forceCoeffs/0/coefficient.dat",
+            "# Header\n# Another comment\n0.5 1.0 2.0 3.0 4.0 5.0 6.0\n",
+        );
+        let result = read_iterations(tc.path()).unwrap();
+        assert_eq!(result["iterations"], serde_json::json!(1));
+        assert_eq!(result["last_time"], serde_json::json!(0.5));
     }
 }

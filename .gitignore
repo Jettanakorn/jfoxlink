@@ -25,6 +25,18 @@ import/
 .env
 *.local
 
+# Server logs
+server*.err
+server*.log
+
+# Node modules
+node_modules/
+
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+
 # Helm packages
 *.tgz
 *.exe

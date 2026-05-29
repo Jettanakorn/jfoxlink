@@ -9,6 +9,7 @@ license.workspace = true
 aeroflow-core = { path = "../aeroflow-core" }
 aeroflow-skills = { path = "../aeroflow-skills" }
 aeroflow-pipeline = { path = "../aeroflow-pipeline" }
+aeroflow-llm = { path = "../aeroflow-llm" }
 
 tokio.workspace = true
 tracing.workspace = true
@@ -23,3 +24,4 @@ jsonwebtoken = "9"
 tokio-stream = { version = "0.1", features = ["sync"] }
 base64.workspace = true
 prometheus.workspace = true
+futures-util.workspace = true

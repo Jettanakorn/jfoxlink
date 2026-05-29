@@ -1,4 +1,5 @@
 use aeroflow_core::SkillId;
+use serde::Serialize;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
@@ -41,16 +42,57 @@ impl SkillsDb {
             let schema = include_str!("../../../db/migrations/001_initial_schema.sql");
             for statement in schema.split(';') {
                 let stmt = statement.trim();
-                if !stmt.is_empty() && !stmt.starts_with("--") {
-                    if let Err(e) = sqlx::query(stmt).execute(pool).await {
+                if !stmt.is_empty() && !stmt.starts_with("--")
+                    && let Err(e) = sqlx::query(stmt).execute(pool).await {
                         tracing::warn!("Migration statement skipped: {}", e);
                     }
-                }
             }
             sqlx::query("INSERT INTO schema_migrations (version) VALUES ($1)")
                 .bind("001")
                 .execute(pool).await?;
             tracing::info!("Applied migration 001");
+        }
+
+        let exists_002 = sqlx::query_scalar::<_, String>(
+            "SELECT version FROM schema_migrations WHERE version = $1"
+        )
+        .bind("002")
+        .fetch_optional(pool).await?;
+
+        if exists_002.is_none() {
+            let schema = include_str!("../../../db/migrations/002_chat.sql");
+            for statement in schema.split(';') {
+                let stmt = statement.trim();
+                if !stmt.is_empty() && !stmt.starts_with("--")
+                    && let Err(e) = sqlx::query(stmt).execute(pool).await {
+                        tracing::warn!("Migration 002 statement skipped: {}", e);
+                    }
+            }
+            sqlx::query("INSERT INTO schema_migrations (version) VALUES ($1)")
+                .bind("002")
+                .execute(pool).await?;
+            tracing::info!("Applied migration 002");
+        }
+
+        let exists_003 = sqlx::query_scalar::<_, String>(
+            "SELECT version FROM schema_migrations WHERE version = $1"
+        )
+        .bind("003")
+        .fetch_optional(pool).await?;
+
+        if exists_003.is_none() {
+            let schema = include_str!("../../../db/migrations/003_agent_loop.sql");
+            for statement in schema.split(';') {
+                let stmt = statement.trim();
+                if !stmt.is_empty() && !stmt.starts_with("--")
+                    && let Err(e) = sqlx::query(stmt).execute(pool).await {
+                        tracing::warn!("Migration 003 statement skipped: {}", e);
+                    }
+            }
+            sqlx::query("INSERT INTO schema_migrations (version) VALUES ($1)")
+                .bind("003")
+                .execute(pool).await?;
+            tracing::info!("Applied migration 003");
         }
 
         Ok(())
@@ -325,6 +367,144 @@ impl SkillsDb {
             .await?;
         Ok(())
     }
+
+    /// Update a skill's reward score and confidence after an agent loop completes
+    pub async fn update_skill_score(&self, skill_id: SkillId, score: f64) -> Result<(), anyhow::Error> {
+        sqlx::query(
+            "UPDATE skills SET reward_score = $1, confidence = GREATEST(confidence, 0.5), n_trials = n_trials + 1, updated_at = NOW() WHERE id = $2"
+        )
+        .bind(score)
+        .bind(skill_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // ── Agent Loop iteration persistence ──
+
+    pub async fn record_agent_iteration(
+        &self,
+        case_id: Uuid,
+        iteration: i32,
+        manifest: &serde_json::Value,
+    ) -> Result<(), anyhow::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO agent_iterations (case_id, iteration, manifest)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (case_id, iteration) DO UPDATE SET
+                manifest = EXCLUDED.manifest
+            "#
+        )
+        .bind(case_id)
+        .bind(iteration)
+        .bind(manifest)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_agent_iteration_results(
+        &self,
+        case_id: Uuid,
+        iteration: i32,
+        forces: &serde_json::Value,
+        mesh_quality: &serde_json::Value,
+        convergence: &serde_json::Value,
+        score: f64,
+    ) -> Result<(), anyhow::Error> {
+        sqlx::query(
+            r#"
+            UPDATE agent_iterations
+            SET forces = $1, mesh_quality = $2, convergence = $3, score = $4
+            WHERE case_id = $5 AND iteration = $6
+            "#
+        )
+        .bind(forces)
+        .bind(mesh_quality)
+        .bind(convergence)
+        .bind(score)
+        .bind(case_id)
+        .bind(iteration)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_agent_iterations(&self, case_id: Uuid) -> Result<Vec<serde_json::Value>, anyhow::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT iteration, manifest, forces, mesh_quality, convergence, score, created_at
+            FROM agent_iterations
+            WHERE case_id = $1
+            ORDER BY iteration ASC
+            "#
+        )
+        .bind(case_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| {
+            serde_json::json!({
+                "iteration": r.get::<i32, _>("iteration"),
+                "manifest": r.get::<serde_json::Value, _>("manifest"),
+                "forces": r.get::<Option<serde_json::Value>, _>("forces"),
+                "mesh_quality": r.get::<Option<serde_json::Value>, _>("mesh_quality"),
+                "convergence": r.get::<Option<serde_json::Value>, _>("convergence"),
+                "score": r.get::<Option<f64>, _>("score"),
+                "created_at": r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            })
+        }).collect())
+    }
+
+    pub async fn record_agent_fix(
+        &self,
+        case_id: Uuid,
+        iteration: i32,
+        diagnosis: &str,
+        fix_action: &str,
+        details: &str,
+        manifest: &serde_json::Value,
+    ) -> Result<(), anyhow::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO agent_fixes (case_id, iteration, diagnosis, fix_action, details, manifest)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#
+        )
+        .bind(case_id)
+        .bind(iteration)
+        .bind(diagnosis)
+        .bind(fix_action)
+        .bind(details)
+        .bind(manifest)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_agent_fixes(&self, case_id: Uuid) -> Result<Vec<serde_json::Value>, anyhow::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT iteration, diagnosis, fix_action, details, manifest, created_at
+            FROM agent_fixes
+            WHERE case_id = $1
+            ORDER BY created_at ASC
+            "#
+        )
+        .bind(case_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| {
+            serde_json::json!({
+                "iteration": r.get::<i32, _>("iteration"),
+                "diagnosis": r.get::<String, _>("diagnosis"),
+                "fix_action": r.get::<String, _>("fix_action"),
+                "details": r.get::<String, _>("details"),
+                "manifest": r.get::<serde_json::Value, _>("manifest"),
+                "created_at": r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            })
+        }).collect())
+    }
 }
 
 #[derive(Debug)]
@@ -374,4 +554,125 @@ pub struct SkillDetail {
     pub bounding_box: serde_json::Value,
     pub surface_area: Option<f64>,
     pub volume: Option<f64>,
+}
+
+// ── Conversations ──
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Conversation {
+    pub id: Uuid,
+    pub case_id: Uuid,
+    pub model: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatMessage {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub role: String,
+    pub content: String,
+    pub tool_calls: serde_json::Value,
+    pub tool_results: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl SkillsDb {
+    pub async fn create_conversation(&self, case_id: Uuid, model: &str) -> Result<Conversation, anyhow::Error> {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now();
+        sqlx::query(
+            "INSERT INTO conversations (id, case_id, model, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(id)
+        .bind(case_id)
+        .bind(model)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(Conversation { id, case_id, model: model.to_string(), created_at: now, updated_at: now })
+    }
+
+    pub async fn list_conversations(&self, case_id: Uuid) -> Result<Vec<Conversation>, anyhow::Error> {
+        let rows = sqlx::query(
+            "SELECT id, case_id, model, created_at, updated_at FROM conversations WHERE case_id = $1 ORDER BY updated_at DESC"
+        )
+        .bind(case_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| Conversation {
+            id: r.get("id"),
+            case_id: r.get("case_id"),
+            model: r.get("model"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }).collect())
+    }
+
+    pub async fn get_conversation(&self, id: Uuid) -> Result<Option<Conversation>, anyhow::Error> {
+        let row = sqlx::query(
+            "SELECT id, case_id, model, created_at, updated_at FROM conversations WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| Conversation {
+            id: r.get("id"),
+            case_id: r.get("case_id"),
+            model: r.get("model"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }))
+    }
+
+    pub async fn delete_conversation(&self, id: Uuid) -> Result<(), anyhow::Error> {
+        sqlx::query("DELETE FROM conversations WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_message(&self, conversation_id: Uuid, role: &str, content: &str, tool_calls: &serde_json::Value, tool_results: &serde_json::Value) -> Result<ChatMessage, anyhow::Error> {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now();
+        sqlx::query(
+            "INSERT INTO chat_messages (id, conversation_id, role, content, tool_calls, tool_results, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        )
+        .bind(id)
+        .bind(conversation_id)
+        .bind(role)
+        .bind(content)
+        .bind(tool_calls)
+        .bind(tool_results)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query("UPDATE conversations SET updated_at = $1 WHERE id = $2")
+            .bind(now)
+            .bind(conversation_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(ChatMessage { id, conversation_id, role: role.to_string(), content: content.to_string(), tool_calls: tool_calls.clone(), tool_results: tool_results.clone(), created_at: now })
+    }
+
+    pub async fn get_messages(&self, conversation_id: Uuid) -> Result<Vec<ChatMessage>, anyhow::Error> {
+        let rows = sqlx::query(
+            "SELECT id, conversation_id, role, content, tool_calls, tool_results, created_at FROM chat_messages WHERE conversation_id = $1 ORDER BY created_at"
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| ChatMessage {
+            id: r.get("id"),
+            conversation_id: r.get("conversation_id"),
+            role: r.get("role"),
+            content: r.get("content"),
+            tool_calls: r.get("tool_calls"),
+            tool_results: r.get("tool_results"),
+            created_at: r.get("created_at"),
+        }).collect())
+    }
 }

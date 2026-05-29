@@ -26,6 +26,7 @@ impl ReportGenerator {
     }
 
     /// Render the report HTML with the given data.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         case_name: &str,
@@ -70,6 +71,7 @@ impl ReportGenerator {
     }
 
     /// Generate an HTML report and write it to a file.
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_html_report(
         &self,
         case_name: &str,

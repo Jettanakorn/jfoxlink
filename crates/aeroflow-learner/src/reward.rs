@@ -1,8 +1,10 @@
 use aeroflow_core::{ForceCoefficients, MeshQualityMetrics, ScoringWeights, SolverStats};
 
+#[derive(Default)]
 pub struct RewardFunction {
     weights: ScoringWeights,
 }
+
 
 impl RewardFunction {
     pub fn new(weights: ScoringWeights) -> Self {

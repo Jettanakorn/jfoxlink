@@ -17,6 +17,12 @@ pub struct GaussianProcess {
     l_factor: Option<Vec<Vec<f64>>>,
 }
 
+impl Default for GaussianProcess {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GaussianProcess {
     pub fn new() -> Self {
         Self {
@@ -84,21 +90,30 @@ impl GaussianProcess {
             None => return x_test.iter().map(|_| (0.0, self.signal_variance.sqrt())).collect(),
         };
 
+        // Pre-solve α = L \ y (used for all mean predictions)
+        let mut alpha_y = self.y_train.clone();
+        for i in 0..n {
+            for j in 0..i {
+                alpha_y[i] -= l[i][j] * alpha_y[j];
+            }
+            alpha_y[i] /= l[i][i];
+        }
+
         x_test.iter().map(|&xq| {
             // k* = K(X, xq)
             let k_star: Vec<f64> = self.x_train.iter().map(|&xi| self.kernel(xi, xq)).collect();
 
-            // Solve L * alpha = k* for alpha (forward substitution)
-            let mut alpha = k_star.clone();
+            // Solve L * beta = k* for beta (forward substitution) — used for variance
+            let mut beta = k_star.clone();
             for i in 0..n {
                 for j in 0..i {
-                    alpha[i] -= l[i][j] * alpha[j];
+                    beta[i] -= l[i][j] * beta[j];
                 }
-                alpha[i] /= l[i][i];
+                beta[i] /= l[i][i];
             }
 
-            // Solve L^T * v = alpha for v (back substitution)
-            let mut v = alpha.clone();
+            // Solve L^T * v = beta for v (back substitution)
+            let mut v = beta.clone();
             for i in (0..n).rev() {
                 for j in (i + 1..n).rev() {
                     v[i] -= l[j][i] * v[j];
@@ -106,13 +121,20 @@ impl GaussianProcess {
                 v[i] /= l[i][i];
             }
 
-            // Mean: k*^T * v
-            let mean: f64 = k_star.iter().zip(v.iter()).map(|(k_, v_)| k_ * v_).sum();
+            // Mean: k*^T * (K+σ²I)^(-1) * y = k*^T * z where z = L^T \ (L \ y)
+            let mut z = alpha_y.clone();
+            for i in (0..n).rev() {
+                for j in (i + 1..n).rev() {
+                    z[i] -= l[j][i] * z[j];
+                }
+                z[i] /= l[i][i];
+            }
+            let mean: f64 = k_star.iter().zip(z.iter()).map(|(k_, z_)| k_ * z_).sum();
 
-            // Variance: k(xq, xq) - v^T * k*
+            // Variance: k(xq, xq) + σ² - k*^T * v
             let k_xx = self.kernel(xq, xq) + self.noise_variance;
-            let var: f64 = k_star.iter().zip(v.iter()).map(|(k_, v_)| k_ * v_).sum();
-            let variance = (k_xx - var).max(1e-12);
+            let var_dot: f64 = k_star.iter().zip(v.iter()).map(|(k_, v_)| k_ * v_).sum();
+            let variance = (k_xx - var_dot).max(1e-12);
 
             (mean, variance.sqrt())
         }).collect()
@@ -129,7 +151,7 @@ impl GaussianProcess {
 
         for (i, &(mean, std)) in predictions.iter().enumerate() {
             let x = x_candidates[i];
-            let improvement = best_so_far - mean;
+            let improvement = mean - best_so_far;
             if std < 1e-12 {
                 if improvement > best_ei {
                     best_ei = improvement;
@@ -160,8 +182,8 @@ fn cholesky(a: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, anyhow::Error> {
     for i in 0..n {
         for j in 0..=i {
             let mut sum = 0.0;
-            for k in 0..j {
-                sum += l[i][k] * l[j][k];
+            for (&lik, &ljk) in l[i][..j].iter().zip(l[j][..j].iter()) {
+                sum += lik * ljk;
             }
             if i == j {
                 let diag = a[i][i] - sum;
@@ -188,17 +210,18 @@ fn gaussian_cdf(x: f64) -> f64 {
     if x > 8.0 {
         return 1.0;
     }
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    // Hart's algorithm 5666 — accurate to ~1.5e-7
+    let p = 0.2316419;
+    let b1 = 0.319381530;
+    let b2 = -0.356563782;
+    let b3 = 1.781477937;
+    let b4 = -1.821255978;
+    let b5 = 1.330274429;
     let x_abs = x.abs();
     let t = 1.0 / (1.0 + p * x_abs);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-0.5 * x_abs * x_abs).exp();
-    0.5 * (1.0 + sign * y)
+    let phi = std::f64::consts::FRAC_1_SQRT_2 / std::f64::consts::PI.sqrt() * (-0.5 * x_abs * x_abs).exp();
+    let y = phi * ((((b5 * t + b4) * t + b3) * t + b2) * t + b1) * t;
+    if x >= 0.0 { 1.0 - y } else { y }
 }
 
 #[cfg(test)]
@@ -222,7 +245,7 @@ mod tests {
         gp.fit(&x, &y).unwrap();
         let preds = gp.predict(&[0.5, 0.55, 0.6]);
         // Predictions should follow the sine wave
-        for &(mean, std) in &preds {
+        for &(_, std) in &preds {
             assert!(std > 0.0);
             assert!(std < 2.0);
         }

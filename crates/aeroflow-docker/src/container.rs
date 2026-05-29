@@ -2,7 +2,12 @@ use uuid::Uuid;
 
 use crate::DockerClient;
 
+/// Manages Docker containers for solver execution.
+///
+/// This is a stub implementation for P0. The `client` field will
+/// be used when the bollard exec/create API is integrated (P2).
 pub struct ContainerManager {
+    #[allow(dead_code)]
     client: DockerClient,
 }
 

@@ -1,21 +1,16 @@
 use crate::gp::GaussianProcess;
-use aeroflow_core::{IntakeConfig, ScoringWeights, TrialOutput};
+use aeroflow_core::{IntakeConfig, TrialOutput};
 use aeroflow_skills::SkillsDb;
-use crate::RewardFunction;
 
 pub type TrialRunner = Box<dyn Fn(MeshParamsTrial) -> Result<TrialOutput, anyhow::Error> + Send + Sync>;
 
 pub struct Optimizer {
     db: Option<SkillsDb>,
-    reward_fn: RewardFunction,
 }
 
 impl Optimizer {
     pub fn new(db: Option<SkillsDb>) -> Self {
-        Self {
-            db,
-            reward_fn: RewardFunction::new(ScoringWeights::default()),
-        }
+        Self { db }
     }
 
     /// Run Bayesian optimization trials for a skill.
@@ -111,7 +106,7 @@ impl Optimizer {
             }
 
             let n_total = history.len() + results.len() + 1;
-            if results.len() >= 1 && (trial % 3 == 0 || trial == n_trials) {
+            if !results.is_empty() && (trial % 3 == 0 || trial == n_trials) {
                 let mut all_x: Vec<f64> = (0..n_total).map(|i| i as f64 / n_total.max(1) as f64).collect();
                 all_x.truncate(history.len() + results.len());
                 let mut all_y: Vec<f64> = history.iter().map(|t| t.reward).collect();
@@ -210,9 +205,9 @@ impl Optimizer {
         }
     }
 
-    pub fn prune_bottom_20pct(history: &mut Vec<TrialResult>) {
+    pub fn prune_bottom_20pct(history: &mut [TrialResult]) {
         let n_prune = (history.len() as f64 * 0.2) as usize;
-        history.sort_by(|a, b| a.reward.partial_cmp(&b.reward).unwrap());
+        history.sort_by(|a, b| a.reward.total_cmp(&b.reward));
         for trial in history.iter_mut().take(n_prune) {
             trial.deprecated = true;
         }

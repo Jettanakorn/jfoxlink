@@ -11,6 +11,12 @@ pub struct QualityVerdict {
 
 pub struct MeshQualityEngine;
 
+impl Default for MeshQualityEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MeshQualityEngine {
     pub fn new() -> Self {
         Self

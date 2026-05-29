@@ -4,6 +4,12 @@ use std::path::Path;
 
 pub struct ForceExtractor;
 
+impl Default for ForceExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ForceExtractor {
     pub fn new() -> Self {
         Self
@@ -40,8 +46,8 @@ impl ForceExtractor {
             }
             // Format: Time Cd Cd(f) Cd(r) Cl Cl(f) Cl(r) CmPitch CmRoll CmYaw Cs Cs(f) Cs(r)
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 8 {
-                if let (Ok(cd), Ok(cl), Ok(cm)) = (
+            if parts.len() >= 8
+                && let (Ok(cd), Ok(cl), Ok(cm)) = (
                     parts.get(1).unwrap_or(&"0").parse::<f64>(),
                     parts.get(4).unwrap_or(&"0").parse::<f64>(),
                     parts.get(7).unwrap_or(&"0").parse::<f64>(),
@@ -54,7 +60,6 @@ impl ForceExtractor {
                         cm_values.push(cm);
                     }
                 }
-            }
         }
 
         if cl_values.is_empty() {

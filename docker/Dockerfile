@@ -15,7 +15,7 @@ COPY db/ ./db/
 COPY templates/ ./templates/
 COPY frontend/ ./frontend/
 
-RUN cargo build --release -p aeroflow-cli 2>&1 || true
+RUN cargo build --release -p aeroflow-cli 2>&1
 
 # Stage 2: Runtime — OpenFOAM + ParaView + VTK + AeroFlow
 FROM microfluidica/openfoam:com AS runtime
@@ -49,9 +49,6 @@ COPY frontend /usr/local/share/aeroflow/frontend
 
 # Create data directories
 RUN mkdir -p /data/{cases,import,reports,skills}
-
-# Copy visualization scripts
-COPY scripts/viz /usr/local/share/aeroflow/scripts/viz
 
 # Install OpenFOAM env globally (so docker exec inherits it)
 RUN bash -c 'source /usr/lib/openfoam/openfoam2512/etc/bashrc && env | grep -v "^_\|^BASH\|^SHELL\|^HOME\|^PWD\|^USER\|^LOGNAME\|^MAIL\|^TERM\|^HOSTNAME\|^LS_\|^TMPDIR\|^PS1" > /etc/environment' && \

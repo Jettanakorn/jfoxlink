@@ -75,6 +75,8 @@ fn ray_triangle_intersect(
 }
 
 /// Test if a point is inside a closed triangle mesh using ray casting.
+///
+/// Utility available for future use in alternative voxelization strategies.
 #[allow(dead_code)]
 fn point_inside_mesh(point: [f64; 3], tris: &[[f64; 3]; 3], vertices: &[[f64; 3]]) -> bool {
     let ray_dir = [1.0, 0.0, 0.0];
@@ -92,7 +94,7 @@ fn point_inside_mesh(point: [f64; 3], tris: &[[f64; 3]; 3], vertices: &[[f64; 3]
 
 /// Bit-pack a flat bool array into bytes (MSB first).
 fn pack_bits(bits: &[bool]) -> Vec<u8> {
-    let mut bytes = vec![0u8; (bits.len() + 7) / 8];
+    let mut bytes = vec![0u8; bits.len().div_ceil(8)];
     for (i, &b) in bits.iter().enumerate() {
         if b {
             bytes[i / 8] |= 1 << (7 - (i % 8));
@@ -127,7 +129,7 @@ impl GeometryFingerprint {
 
         // Convert faces to index triples
         let tris: Vec<[usize; 3]> = mesh.faces.iter()
-            .map(|f| [f.vertices[0] as usize, f.vertices[1] as usize, f.vertices[2] as usize])
+            .map(|f| [f.vertices[0], f.vertices[1], f.vertices[2]])
             .collect();
 
         // Bounding box
@@ -316,8 +318,8 @@ impl GeometryFingerprint {
             .map(|v| [v[0] as f64, v[1] as f64, v[2] as f64])
             .collect();
 
-        let tris: Vec<[usize; 3]> = mesh.faces.iter()
-            .map(|f| [f.vertices[0] as usize, f.vertices[1] as usize, f.vertices[2] as usize])
+        let _tris: Vec<[usize; 3]> = mesh.faces.iter()
+            .map(|f| [f.vertices[0], f.vertices[1], f.vertices[2]])
             .collect();
 
         // Bounding box
@@ -425,5 +427,139 @@ impl GeometryFingerprint {
 
         // Weighted combination (coarse = 40%, medium = 60%)
         0.4 * coarse_norm + 0.6 * medium_norm
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_hamming_distance_self_is_zero() {
+        let fp = GeometryFingerprint {
+            geometry_id: Uuid::new_v4(),
+            sha256_hash: vec![0u8; 32],
+            voxel_signature: VoxelSignature {
+                coarse_hash: vec![0u8; 64],
+                medium_hash: vec![0u8; 4096],
+                fine_hash: vec![0u8; 32],
+                voxel_data: None,
+            },
+            bbox: [0.0; 6],
+            surface_area: 0.0,
+            volume: 0.0,
+            aspect_ratio: 1.0,
+            num_triangles: 0,
+        };
+        let dist = fp.hamming_distance(&fp.voxel_signature);
+        assert_eq!(dist, 0.0);
+    }
+
+    #[test]
+    fn test_hamming_distance_different_is_positive() {
+        let fp = GeometryFingerprint {
+            geometry_id: Uuid::new_v4(),
+            sha256_hash: vec![0u8; 32],
+            voxel_signature: VoxelSignature {
+                coarse_hash: vec![0u8; 64],
+                medium_hash: vec![0u8; 4096],
+                fine_hash: vec![0u8; 32],
+                voxel_data: None,
+            },
+            bbox: [0.0; 6],
+            surface_area: 0.0,
+            volume: 0.0,
+            aspect_ratio: 1.0,
+            num_triangles: 0,
+        };
+        let other_vs = VoxelSignature {
+            coarse_hash: vec![0xFFu8; 64],
+            medium_hash: vec![0xFFu8; 4096],
+            fine_hash: vec![0u8; 32],
+            voxel_data: None,
+        };
+        let dist = fp.hamming_distance(&other_vs);
+        assert!((dist - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_compute_fingerprint() {
+        let vertices = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ];
+        let triangles = vec![
+            [0, 1, 2], [0, 2, 3],
+            [4, 6, 5], [4, 7, 6],
+            [0, 4, 5], [0, 5, 1],
+            [3, 2, 6], [3, 6, 7],
+            [0, 3, 7], [0, 7, 4],
+            [1, 5, 6], [1, 6, 2],
+        ];
+        let fp = GeometryFingerprint::compute_fingerprint(&vertices, &triangles);
+        assert_eq!(fp.num_triangles, 12);
+        assert_eq!(fp.bbox, [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        assert!((fp.volume - 1.0).abs() < 1e-10);
+        assert!((fp.surface_area - 6.0).abs() < 1e-10);
+        assert!((fp.aspect_ratio - 1.0).abs() < 1e-10);
+        assert_eq!(fp.voxel_signature.coarse_hash.len(), 64);
+        assert_eq!(fp.voxel_signature.medium_hash.len(), 4096);
+        assert_eq!(fp.voxel_signature.fine_hash.len(), 32);
+    }
+
+    #[test]
+    fn test_pack_bits() {
+        let bits = vec![true, false, true, false, true, false, true, false];
+        let packed = pack_bits(&bits);
+        assert_eq!(packed, vec![0b10101010]);
+
+        let bits_short = vec![true, true, false];
+        let packed_short = pack_bits(&bits_short);
+        assert_eq!(packed_short, vec![0b11000000]);
+
+        let bits_long = vec![true; 9];
+        let packed_long = pack_bits(&bits_long);
+        assert_eq!(packed_long, vec![0xFF, 0x80]);
+    }
+
+    #[test]
+    fn test_ray_triangle_intersect_hit() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.1, 0.1, -1.0];
+        let dir = [0.0, 0.0, 1.0];
+        let t = ray_triangle_intersect(origin, dir, v0, v1, v2);
+        assert!(t.is_some());
+        assert!((t.unwrap() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ray_triangle_intersect_miss() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.1, 0.1, -1.0];
+        let dir = [0.0, 0.0, -1.0];
+        let t = ray_triangle_intersect(origin, dir, v0, v1, v2);
+        assert!(t.is_none());
+    }
+
+    #[test]
+    fn test_ray_triangle_intersect_parallel() {
+        let v0 = [0.0, 0.0, 0.0];
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let origin = [0.1, 0.1, 1.0];
+        let dir = [1.0, 0.0, 0.0];
+        let t = ray_triangle_intersect(origin, dir, v0, v1, v2);
+        assert!(t.is_none());
     }
 }

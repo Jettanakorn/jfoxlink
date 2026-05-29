@@ -6,6 +6,12 @@ pub struct ResourceMonitor {
     system: System,
 }
 
+impl Default for ResourceMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceMonitor {
     pub fn new() -> Self {
         Self {
@@ -22,8 +28,8 @@ impl ResourceMonitor {
         self.system.refresh_memory_specifics(MemoryRefreshKind::everything());
 
         let cpu_percent = self.system.global_cpu_usage() as f64;
-        let total_mem = self.system.total_memory() as u64;
-        let used_mem = self.system.used_memory() as u64;
+        let total_mem = self.system.total_memory();
+        let used_mem = self.system.used_memory();
 
         ResourceUsage {
             cpu_percent,

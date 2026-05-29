@@ -1,6 +1,19 @@
 use std::path::Path;
 use tracing::info;
 
+fn parse_force_coefficients(data: &str) -> (f64, f64) {
+    let last_line = data.lines().rfind(|l| {
+        let trimmed = l.trim();
+        !trimmed.is_empty() && !trimmed.starts_with('#')
+    }).unwrap_or("");
+    let parts: Vec<&str> = last_line.split_whitespace().collect();
+    if parts.len() >= 4 {
+        (parts[2].parse::<f64>().unwrap_or(0.0), parts[1].parse::<f64>().unwrap_or(0.0))
+    } else {
+        (0.0, 0.0)
+    }
+}
+
 pub async fn execute(case_path: &Path) -> anyhow::Result<()> {
     info!("Generating report for case: {:?}", case_path);
 
@@ -12,15 +25,7 @@ pub async fn execute(case_path: &Path) -> anyhow::Result<()> {
 
     // Read force coefficients from postProcessing
     let (cl, cd) = match std::fs::read_to_string(case_path.join("postProcessing/forceCoeffs/0/coefficient.dat")) {
-        Ok(data) => {
-            let last_line = data.lines().filter(|l| !l.starts_with('#')).last().unwrap_or("");
-            let parts: Vec<&str> = last_line.split_whitespace().collect();
-            if parts.len() >= 4 {
-                (parts[3].parse::<f64>().unwrap_or(0.0), parts[1].parse::<f64>().unwrap_or(0.0))
-            } else {
-                (0.0, 0.0)
-            }
-        }
+        Ok(data) => parse_force_coefficients(&data),
         Err(_) => (0.0, 0.0),
     };
 
@@ -61,4 +66,65 @@ th{{background:#1a1a2e;color:white}}.ok{{color:green}}.warn{{color:orange}}</sty
     println!("  Path: {:?}/index.html", report_dir);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_force_coefficients_typical() {
+        let data = "#  Time    Cd      Cl      Cm
+0.1    0.045   0.321   0.002
+";
+        let (cl, cd) = parse_force_coefficients(data);
+        assert!((cl - 0.321).abs() < 1e-6);
+        assert!((cd - 0.045).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_force_coefficients_empty_string() {
+        let (cl, cd) = parse_force_coefficients("");
+        assert!((cl - 0.0).abs() < 1e-6);
+        assert!((cd - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_force_coefficients_only_comments() {
+        let data = "# Just a header
+# Another comment line
+";
+        let (cl, cd) = parse_force_coefficients(data);
+        assert!((cl - 0.0).abs() < 1e-6);
+        assert!((cd - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_force_coefficients_trailing_blank_lines() {
+        let data = "#  Time    Cd      Cl      Cm
+0.1    0.055   0.412   0.001
+
+";
+        let (cl, cd) = parse_force_coefficients(data);
+        assert!((cl - 0.412).abs() < 1e-6);
+        assert!((cd - 0.055).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_force_coefficients_from_file_in_temp_dir() {
+        let tmp = std::env::temp_dir().join(format!("aeroflow_test_report_{}", std::process::id()));
+        let coeff_dir = tmp.join("postProcessing").join("forceCoeffs").join("0");
+        std::fs::create_dir_all(&coeff_dir).expect("create temp dir for report test");
+        let coeff_data = "# Time Cd Cl Cm\n0.1 0.071 0.523 0.003\n";
+        std::fs::write(coeff_dir.join("coefficient.dat"), coeff_data).expect("write coefficient file");
+
+        let content = std::fs::read_to_string(coeff_dir.join("coefficient.dat"))
+            .expect("read coefficient file back");
+        let (cl, cd) = parse_force_coefficients(&content);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert!((cl - 0.523).abs() < 1e-6);
+        assert!((cd - 0.071).abs() < 1e-6);
+    }
 }

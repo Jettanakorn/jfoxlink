@@ -8,19 +8,26 @@
   </p>
 </p>
 
-**AeroFlow Agent** is a Rust-based autonomous CFD analysis system that takes an STL geometry
-and produces a complete aerodynamic report — mesh quality, convergence history, and force
-coefficients (Cl/Cd/Cm) — without manual intervention.
+**AeroFlow Agent** is a Rust-based autonomous multi-physics simulation orchestrator that takes
+an STL geometry and produces a complete engineering report — covering **aerodynamics, CHT,
+hypersonics, MHD, PEM fuel cells, rotating machinery, and 21 additional physics domains** —
+without manual intervention. Includes a custom OpenFOAM solver scaffold generator with
+**16 solver templates** and an **8-phase LLM-driven autonomous optimization loop**.
 
-Built on OpenFOAM, PostgreSQL, and Gaussian Process optimization.
+Built on OpenFOAM, PostgreSQL, and Gaussian Process regression.
 Deployable via Docker Compose or Kubernetes Helm chart.
 
 ---
 
 ## Features
 
-- **End-to-end automation** — STL voxel fingerprint → 8-stage pipeline → HTML report
+- **26 physics domains** — aerodynamics, CHT, hypersonic (Ma≥5, Park chemistry, JANAF), MHD/plasma, PEMFC (4 models), rotating machinery (MRF/AMI), combustion, multiphase, FSI, cavitation, spray, porous media, viscoelastic, non-Newtonian, particle, aeroacoustics, wave, phase change, wind, marine, propulsion, ablation, nuclear, electrostatic, ML surrogate, topology optimization
+- **16 solver templates** — auto-generate complete OpenFOAM solver source code (Make/files, .C, UEqn, pEqn, EEqn, YEqn, epsEqn, saturationEqn, degradationEqn, createFields)
+- **End-to-end automation** — STL voxel fingerprint → 9-stage pipeline → HTML report
 - **Self-healing mesh** — adaptive snappyHexMesh with up to 3 retries and relaxed parameters
+- **49 config generators** — physics-aware controlDict, fvSchemes, fvSolution, transport, thermo, radiation, MRF, AMI, BCs per domain
+- **21 post-processing extractors** — domain-specific metrics (Fay-Riddell heat flux, PEMFC polarization, Hartmann number, Nusselt number, etc.)
+- **8-phase LLM agent loop** — propose → scaffold → run → diagnose → evaluate → compare → refine → persist
 - **Autonomous skill learning** — Gaussian Process optimizes solver parameters per (geometry, flow regime)
 - **Real-time monitoring** — TUI dashboard, SSE event stream, Prometheus metrics
 - **SaaS-ready** — JWT auth, multi-tenant REST API, file watcher auto-import
@@ -60,9 +67,11 @@ helm install aeroflow helm/aeroflow
 
 ```
 STL → surfaceFeatureExtract → blockMesh + snappyHexMesh (adaptive, 3x retry)
-  → checkMesh → controlDict / fvSchemes / fvSolution
-  → simpleFoam / rhoCentralFoam (auto-selected by Mach)
-  → forceCoeffs extraction → foamToVTK → Python viz (pressure/velocity/convergence plots) → HTML report
+  → checkMesh → controlDict / fvSchemes / fvSolution (49 domain-aware generators)
+  → solver (16 auto-selected by Mach + physics: simpleFoam, rhoCentralFoam, hy2Foam,
+    chtMultiRegionFoam, mhdFoam, pemfcFoam, pemfcThermalFoam, pemfcTwoPhaseFoam, etc.)
+  → 21 domain-specific physics extractors → foamToVTK
+  → Python viz (pressure/velocity/convergence plots) → HTML report
 ```
 
 Skills feedback loop: `case result → reward → GP update → next params → run again`
@@ -89,24 +98,25 @@ Skills feedback loop: `case result → reward → GP update → next params → 
 
 ## Architecture
 
-14 Rust crates in a workspace + Python visualization scripts:
+15 Rust crates in a workspace + Python visualization scripts:
 
 ```text
-aeroflow-cli         CLI + TUI
-├── aeroflow-pipeline  9-stage orchestrator (+ Visualization)
+aeroflow-cli            CLI + TUI
+├── aeroflow-pipeline   9-stage orchestrator (+ Visualization)
 │   ├── aeroflow-mesh     blockMesh + snappyHexMesh + quality
-│   ├── aeroflow-solver   Config gen + subprocess launch
-│   └── aeroflow-post     Force extraction
-├── aeroflow-skills    PostgreSQL, STL fingerprint, user mgmt
-├── aeroflow-api       REST API (axum), JWT, SSE
-├── aeroflow-learner   Gaussian Process optimization
-├── aeroflow-events    File watcher + event bus
-├── aeroflow-doctor    Health checks (20+ checks, 7 categories)
-├── aeroflow-core      Types, config, metrics, workspace
-├── aeroflow-docker    Container management
-├── aeroflow-report    Tera → HTML report (with viz images)
-├── aeroflow-monitor   sysinfo resource monitoring
-└── scripts/viz/       Python VTK + matplotlib visualization
+│   ├── aeroflow-solver   49 config generators, 16 solver templates, solver selection
+│   └── aeroflow-post     21 domain-specific physics extractors
+├── aeroflow-core        Core types, 26 physics domain configs
+├── aeroflow-llm         12 LLM agent tools, 8-phase autonomous loop
+├── aeroflow-skills      PostgreSQL, STL fingerprint, user mgmt
+├── aeroflow-api         REST API (axum), JWT, SSE
+├── aeroflow-learner     Gaussian Process optimization
+├── aeroflow-events      File watcher + event bus
+├── aeroflow-doctor      Health checks (20+ checks, 7 categories)
+├── aeroflow-docker      Container management
+├── aeroflow-report      Tera → HTML report (with viz images)
+├── aeroflow-monitor     sysinfo resource monitoring
+└── scripts/viz/         Python VTK + matplotlib visualization
 ```
 
 ---
@@ -147,6 +157,7 @@ Available at `http://localhost:8080/metrics`
 | v0.3.0 | 2026-05-20 | P3 SaaS: REST API, JWT auth, file watcher, multi-tenant |
 | v0.4.0 | 2026-05-20 | P4–P5 production: GP optimization, CI/CD, Helm chart, metrics |
 | **v0.5.0** | **2026-05-22** | **P6 visualization: foamToVTK export, Python matplotlib images (pressure/velocity/convergence), report embedding** |
+| **v0.6.0** | **2026-05-29** | **P7 quality: Digital Wind Tunnel, zero warnings (179 fixed), 77 new tests, code hardening, Dockerfile fix** |
 
 ---
 

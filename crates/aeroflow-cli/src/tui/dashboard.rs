@@ -190,8 +190,8 @@ async fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::
     while !app.should_quit {
         terminal.draw(|f| ui(f, &mut app))?;
 
-        if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(200))?
+            && let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
                     KeyCode::Tab => {
@@ -221,7 +221,6 @@ async fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::
                     _ => {}
                 }
             }
-        }
 
         for case in &mut app.cases {
             if case.stage == "SOLVING" {
@@ -399,7 +398,7 @@ fn render_case_card(f: &mut Frame, area: Rect, case: &CaseStatus) {
 
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(color).bg(Color::DarkGray))
-        .ratio(case.stage_progress as f64);
+        .ratio(case.stage_progress);
     let gauge_area = Rect {
         y: chunks[0].y,
         height: 1,

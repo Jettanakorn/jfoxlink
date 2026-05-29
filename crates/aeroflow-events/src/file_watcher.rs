@@ -97,11 +97,10 @@ impl FileWatcher {
                         Ok(event) => {
                             // Debounce: ignore rapid repeated events
                             let now = Instant::now();
-                            if let Some(last) = last_event_time {
-                                if now.duration_since(last) < debounce {
+                            if let Some(last) = last_event_time
+                                && now.duration_since(last) < debounce {
                                     continue;
                                 }
-                            }
                             last_event_time = Some(now);
 
                             // Only handle create/modify events
@@ -115,13 +114,12 @@ impl FileWatcher {
                             }
 
                             for path in &event.paths {
-                                if path.extension().and_then(|e| e.to_str()) == Some("stl") {
-                                    if let Err(e) = Self::handle_stl_import(
+                                if path.extension().and_then(|e| e.to_str()) == Some("stl")
+                                    && let Err(e) = Self::handle_stl_import(
                                         path, &import_dir, &workspace_dir, &db, &event_bus, &tracker,
                                     ) {
                                         warn!("STL import error for {:?}: {}", path, e);
                                     }
-                                }
                             }
                         }
                         Err(e) => {
@@ -181,7 +179,7 @@ impl FileWatcher {
 
         // Deduplicate: skip if we've already imported this exact file
         {
-            let mut tracker = tracker.lock().unwrap();
+            let mut tracker = tracker.lock().expect("poisoned");
             if !tracker.seen.insert((canonical.clone(), mtime)) {
                 info!("Skipping already-imported STL: {:?}", path);
                 return Ok(());

@@ -1,0 +1,27 @@
+[package]
+name = "aeroflow-llm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+reqwest = { version = "0.12", features = ["json", "stream", "native-tls-vendored"] }
+futures-util.workspace = true
+tracing.workspace = true
+async-trait = "0.1"
+
+aeroflow-core = { path = "../aeroflow-core" }
+aeroflow-skills = { path = "../aeroflow-skills" }
+aeroflow-learner = { path = "../aeroflow-learner" }
+aeroflow-pipeline = { path = "../aeroflow-pipeline" }
+aeroflow-post = { path = "../aeroflow-post" }
+aeroflow-solver = { path = "../aeroflow-solver" }

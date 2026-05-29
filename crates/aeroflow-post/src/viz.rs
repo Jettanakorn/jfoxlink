@@ -72,13 +72,11 @@ pub fn generate_visualization(case_path: &Path, report_dir: &Path) -> Result<Vec
     if let Ok(entries) = std::fs::read_dir(&images_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "png" {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if let Some(ext) = path.extension()
+                && ext == "png"
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         generated.push(format!("images/{}", name));
                     }
-                }
-            }
         }
     }
 

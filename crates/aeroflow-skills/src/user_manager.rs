@@ -1,6 +1,7 @@
 use aeroflow_core::{CreateUserRequest, UpdateUserRequest, User, UserId, UserRole, Session};
 use sha2::Digest;
 use sqlx::postgres::PgPool;
+use std::str::FromStr;
 use sqlx::Row;
 
 #[derive(Clone)]
@@ -74,7 +75,7 @@ impl UserManager {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.iter().map(|r| Self::row_to_user(r)).collect())
+        Ok(rows.iter().map(Self::row_to_user).collect())
     }
 
     pub async fn update_user(&self, id: UserId, req: &UpdateUserRequest) -> Result<User, anyhow::Error> {
@@ -84,7 +85,7 @@ impl UserManager {
         let name = req.name.as_deref().unwrap_or(&existing.name);
         let email = req.email.as_deref().unwrap_or(&existing.email);
         let role = req.role.as_ref().map(|r| r.label()).unwrap_or_else(|| {
-            UserRole::from_str(&existing.role.label()).map(|r| r.label()).unwrap_or("engineer")
+            UserRole::from_str(existing.role.label()).map(|r| r.label()).unwrap_or("engineer")
         });
         let active = req.active.unwrap_or(existing.active);
         let quota_max_concurrent = req.quota_max_concurrent.unwrap_or(existing.quota_max_concurrent);
@@ -198,5 +199,36 @@ impl UserManager {
             preferences: row.get("preferences"),
             created_at: row.get("created_at"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_password_starts_with_sha256() {
+        let hash = UserManager::hash_password("test123").unwrap();
+        assert!(hash.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn test_hash_password_different_inputs_different_outputs() {
+        let h1 = UserManager::hash_password("password1").unwrap();
+        let h2 = UserManager::hash_password("password2").unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_verify_password_correct() {
+        let password = "correct-horse-battery-staple";
+        let hash = UserManager::hash_password(password).unwrap();
+        assert!(UserManager::verify_password(password, &hash).unwrap());
+    }
+
+    #[test]
+    fn test_verify_password_incorrect() {
+        let hash = UserManager::hash_password("real-password").unwrap();
+        assert!(!UserManager::verify_password("wrong-password", &hash).unwrap());
     }
 }

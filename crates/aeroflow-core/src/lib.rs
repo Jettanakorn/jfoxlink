@@ -4,6 +4,7 @@ pub mod errors;
 pub mod events;
 pub mod workspace;
 pub mod metrics;
+pub mod domain;
 
 pub use types::*;
 pub use config::*;
@@ -11,3 +12,4 @@ pub use errors::*;
 pub use events::*;
 pub use workspace::*;
 pub use metrics::*;
+pub use domain::*;

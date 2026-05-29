@@ -1,3 +1,4 @@
+use anyhow::Context;
 use aeroflow_core::SolverStats;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -10,6 +11,12 @@ use tracing::{debug, info, warn};
 pub type ProgressCallback = Box<dyn Fn(u64, f64, f64) + Send>;
 
 pub struct SolverLauncher;
+
+impl Default for SolverLauncher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SolverLauncher {
     pub fn new() -> Self {
@@ -42,7 +49,7 @@ impl SolverLauncher {
         _plateau_improvement: f64,
     ) -> Result<SolverStats, anyhow::Error> {
         let mut child = Self::spawn(case_path, solver)?;
-        let stdout = child.stdout.take().expect("stdout captured");
+        let stdout = child.stdout.take().context("stdout not captured from solver process")?;
 
         let mut iterations = 0u64;
         let mut last_reported = 0u64;
@@ -60,19 +67,18 @@ impl SolverLauncher {
         for line in reader.lines() {
             let line = line?;
 
-            if let Some(ref flag) = cancel {
-                if flag.load(Ordering::Relaxed) {
+            if let Some(ref flag) = cancel
+                && flag.load(Ordering::Relaxed) {
                     let _ = child.kill();
                     anyhow::bail!("Solver cancelled by user");
                 }
-            }
 
             // Parse time step
-            if line.contains("Time =") {
-                if let Some(ts) = line.split('=').nth(1) {
-                    if let Ok(t) = ts.trim().parse::<u64>() {
+            if line.contains("Time =")
+                && let Some(ts) = line.split('=').nth(1)
+                    && let Ok(t) = ts.trim().parse::<u64>() {
                         // Fire progress callback for the PREVIOUS completed iteration
-                        if t > 0 && iterations > 0 && iterations % 50 == 0 && iterations != last_reported {
+                        if t > 0 && iterations > 0 && iterations.is_multiple_of(50) && iterations != last_reported {
                             last_reported = iterations;
                             if let Some(ref cb) = on_progress {
                                 cb(iterations, residual_p, residual_u);
@@ -83,14 +89,12 @@ impl SolverLauncher {
                         iterations = t;
                         iter_u_max = 0.0;
                     }
-                }
-            }
 
             // Parse residuals
-            if line.contains("Initial residual") {
-                if let Some(res_part) = line.split("Initial residual = ").nth(1) {
-                    if let Some(val) = res_part.split(',').next() {
-                        if let Ok(r) = val.trim().parse::<f64>() {
+            if line.contains("Initial residual")
+                && let Some(res_part) = line.split("Initial residual = ").nth(1)
+                    && let Some(val) = res_part.split(',').next()
+                        && let Ok(r) = val.trim().parse::<f64>() {
                             let lower = line.to_lowercase();
                             let is_p = lower.contains("solving for p") || lower.contains("solving for p_rgh");
                             let is_u = lower.contains("solving for u");
@@ -117,9 +121,6 @@ impl SolverLauncher {
                                 }
                             }
                         }
-                    }
-                }
-            }
 
 
             // Plateau detection: if both residuals stagnated, stop solver
@@ -143,8 +144,9 @@ impl SolverLauncher {
         }
 
         // Fire final callback if last iteration was a multiple of 50
-        if iterations > 0 && iterations % 50 == 0 && iterations != last_reported {
-            last_reported = iterations;
+        use std::mem::replace;
+        if iterations > 0 && iterations.is_multiple_of(50) && iterations != last_reported {
+            let _ = replace(&mut last_reported, iterations);
             if let Some(ref cb) = on_progress {
                 cb(iterations, residual_p, residual_u);
             }

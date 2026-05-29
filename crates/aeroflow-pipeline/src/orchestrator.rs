@@ -1,12 +1,12 @@
 use aeroflow_core::{
-    CaseId, CaseMeta, ForceCoefficients, IntakeConfig, MeshParams, MeshQualityMetrics, SolverStats,
-    Stage, SystemEvent, EventBus, create_event_bus,
+    CaseConfig, CaseId, CaseMeta, ForceCoefficients, IntakeConfig, MeshParams, MeshQualityMetrics,
+    SolverStats, Stage, SystemEvent, EventBus, WindTunnelDomainSizer,
+    create_event_bus,
 };
 use aeroflow_mesh::{GeoBounds, MeshGenerator, MeshQualityEngine};
 use aeroflow_post::ForceExtractor;
-use aeroflow_report::ReportGenerator;
 use aeroflow_skills::SkillsDb;
-use aeroflow_solver::{ProgressCallback, SolverLauncher};
+use aeroflow_solver::{ProgressCallback, SolverLauncher, WindTunnelBcGenerator};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -86,6 +86,7 @@ impl PipelineOrchestrator {
         solver_name: &str,
         cancel: Option<Arc<AtomicBool>>,
         mesh_params: Option<&MeshParams>,
+        case_config: Option<&CaseConfig>,
     ) -> Result<PipelineResult, anyhow::Error> {
         if self.active_cases.len() as u32 > self.max_concurrent {
             anyhow::bail!("Max concurrent cases reached ({}).", self.max_concurrent);
@@ -118,7 +119,7 @@ impl PipelineOrchestrator {
         self.transition(case_id, Stage::Meshing);
         // Remove any leftover mesh time dirs before starting fresh meshing
         self.remove_all_time_dirs(case_path);
-        self.write_blockmesh_dict(case_path)?;
+        self.write_blockmesh_dict(case_path, case_config)?;
         self.run_block_mesh(case_path)?;
 
         // Phase 4: SnappyHexMesh + adaptive mesh quality loop (up to 3 attempts)
@@ -151,6 +152,12 @@ impl PipelineOrchestrator {
                     convergence_residual: 1e-6, max_agent_iterations: 3,
                     human_in_loop: false, priority: aeroflow_core::Priority::Balanced,
                     hpc_cores: 4, time_budget_hours: 24.0,
+                    rotating: None,
+                    hypersonic: None,
+                    cht: None,
+                    mhd: None,
+                    pemfc: None,
+                    wind_tunnel: None,
                 };
                 let stl_path = self.find_stl(case_path);
                 let geo_bounds = stl_path.as_ref().and_then(|p| GeoBounds::from_stl(p));
@@ -200,7 +207,7 @@ impl PipelineOrchestrator {
 
         // Phase 5: Solver setup — copy controlDict, fvSchemes, fvSolution
         self.transition(case_id, Stage::Setup);
-        self.setup_solver(case_path, solver_name)?;
+        self.setup_solver(case_path, solver_name, case_config)?;
 
         // Phase 6: Solve (with plateau detection and event bus progress)
         self.transition(case_id, Stage::Solving);
@@ -215,7 +222,7 @@ impl PipelineOrchestrator {
 
         // Phase 7: Post-processing
         self.transition(case_id, Stage::PostProcessing);
-        let forces = self.run_post_process(case_path)?;
+        let forces = self.run_post_process(case_path, case_config)?;
 
         // Phase 8: Visualization — generate VTK export and rendered images
         self.transition(case_id, Stage::Visualization);
@@ -297,10 +304,24 @@ impl PipelineOrchestrator {
         None
     }
 
-    fn write_blockmesh_dict(&self, case_path: &Path) -> Result<(), anyhow::Error> {
-        info!("  Writing blockMeshDict...");
+    fn write_blockmesh_dict(&self, case_path: &Path, case_config: Option<&CaseConfig>) -> Result<(), anyhow::Error> {
         let stl_path = self.find_stl(case_path);
         let geo_bounds = stl_path.as_ref().and_then(|p| GeoBounds::from_stl(p));
+
+        // If wind_tunnel config is present, use chord-based asymmetric blockMesh
+        if let Some(cfg) = case_config.and_then(|c| c.wind_tunnel.as_ref()) {
+            info!("  Writing digital wind tunnel blockMeshDict...");
+            let bounds = geo_bounds.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Cannot generate wind tunnel blockMesh without STL bounds")
+            })?;
+            let mesh_gen = MeshGenerator::with_format(aeroflow_core::OpenFOAMFormat::Binary);
+            let dict = mesh_gen.generate_wind_tunnel_blockmesh(bounds, Some(cfg));
+            std::fs::write(case_path.join("system").join("blockMeshDict"), dict.as_bytes())?;
+            return Ok(());
+        }
+
+        // Fallback to existing uniform-padding blockMesh
+        info!("  Writing blockMeshDict (uniform padding)...");
         if geo_bounds.is_some() {
             info!("    Auto-sized from STL bounding box");
         } else {
@@ -380,15 +401,12 @@ impl PipelineOrchestrator {
         if let Ok(entries) = std::fs::read_dir(case_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if let Ok(time) = name.parse::<f64>() {
-                            if time > 0.0 && !path.join("polyMesh").exists() {
+                if path.is_dir()
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                        && let Ok(time) = name.parse::<f64>()
+                            && time > 0.0 && !path.join("polyMesh").exists() {
                                 let _ = std::fs::remove_dir_all(&path);
                             }
-                        }
-                    }
-                }
             }
         }
         // Clean postProcessing from previous runs
@@ -404,15 +422,12 @@ impl PipelineOrchestrator {
         if let Ok(entries) = std::fs::read_dir(case_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if let Ok(time) = name.parse::<f64>() {
-                            if time > 0.0 {
+                if path.is_dir()
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                        && let Ok(time) = name.parse::<f64>()
+                            && time > 0.0 {
                                 let _ = std::fs::remove_dir_all(&path);
                             }
-                        }
-                    }
-                }
             }
         }
     }
@@ -441,8 +456,19 @@ impl PipelineOrchestrator {
         }
     }
 
-    fn setup_solver(&self, case_path: &Path, solver_name: &str) -> Result<(), anyhow::Error> {
+    fn setup_solver(&self, case_path: &Path, solver_name: &str, case_config: Option<&CaseConfig>) -> Result<(), anyhow::Error> {
         info!("  Setting up solver configuration...");
+
+        // Determine magUInf and reference values from case_config or defaults
+        let mag_u_inf = case_config
+            .and_then(|c| c.wind_tunnel.as_ref())
+            .and_then(|wt| wt.velocity_m_s)
+            .or_else(|| case_config.map(|c| c.velocity_m_s))
+            .unwrap_or(9.15);
+        let l_ref = case_config
+            .and_then(|c| c.reference_length_m)
+            .unwrap_or(0.3);
+        let a_ref = l_ref * l_ref;
 
         // Write controlDict
         let control_dict = format!(
@@ -476,14 +502,14 @@ functions
         liftDir         (0 0 1);
         dragDir         (1 0 0);
         pitchAxis       (0 1 0);
-        magUInf         9.15;
-        lRef            0.3;
-        Aref            0.3;
+        magUInf         {};
+        lRef            {};
+        Aref            {};
         writeControl    timeStep;
         writeInterval   10;
     }}
 }}
-"#, solver_name);
+"#, solver_name, mag_u_inf, l_ref, a_ref);
 
         let system_dir = case_path.join("system");
         std::fs::create_dir_all(&system_dir)?;
@@ -512,69 +538,69 @@ wallDist
         std::fs::write(system_dir.join("fvSchemes"), fv_schemes)?;
 
         // Write fvSolution (PIMPLE with defaults)
-        let fv_solution = format!(r#"FoamFile {{ version 2.0; format binary; class dictionary; object fvSolution; }}
+        let fv_solution = r#"FoamFile { version 2.0; format binary; class dictionary; object fvSolution; }
 
 solvers
-{{
+{
     p
-    {{
+    {
         solver          GAMG;
         tolerance       1e-6;
         relTol          0.01;
         smoother        GaussSeidel;
-    }}
+    }
     U
-    {{
+    {
         solver          smoothSolver;
         smoother        symGaussSeidel;
         tolerance       1e-6;
         relTol          0;
         nSweeps         3;
-    }}
+    }
     k
-    {{
+    {
         $U;
         tolerance       1e-6;
         relTol          0;
         nSweeps         3;
-    }}
+    }
     omega
-    {{
+    {
         $U;
         tolerance       1e-6;
         relTol          0;
         nSweeps         3;
-    }}
-}}
+    }
+}
 
 SIMPLE
-{{
+{
     nNonOrthogonalCorrectors 2;
     residualControl
-    {{
+    {
         U              1e-4;
         p              1e-4;
         k              1e-4;
         omega          1e-4;
-    }}
+    }
     pRefPoint       (0 0 0);
     pRefValue       0;
-}}
+}
 
 relaxationFactors
-{{
+{
     fields
-    {{
+    {
         p               0.3;
-    }}
+    }
     equations
-    {{
+    {
         U               0.7;
         k               0.7;
         omega           0.7;
-    }}
-}}
-"#);
+    }
+}
+"#.to_string();
         std::fs::write(system_dir.join("fvSolution"), fv_solution)?;
 
         // Write constant/transportProperties
@@ -589,42 +615,59 @@ rho             rho [1 -3 0 0 0 0 0] 1.225;
 "#;
         std::fs::write(constant_dir.join("transportProperties"), transport)?;
 
-        // Write constant/turbulenceProperties (kOmegaSST)
-        let turb = r#"FoamFile { version 2.0; format ascii; class dictionary; object turbulenceProperties; }
+        // Write constant/turbulenceProperties
+        let turb_model = case_config
+            .map(|c| c.turbulence_model.as_str())
+            .unwrap_or("kOmegaSST");
+        let turb = format!(
+            r#"FoamFile {{ version 2.0; format ascii; class dictionary; object turbulenceProperties; }}
 
 simulationType  RAS;
 RAS
-{
-    RASModel        kOmegaSST;
+{{
+    RASModel        {};
     turbulence      on;
     printCoeffs     on;
-}
-"#;
+}}
+"#, turb_model);
         std::fs::write(constant_dir.join("turbulenceProperties"), turb)?;
 
         // Write initial field files (0/U, 0/p, 0/k, 0/omega, 0/nut)
         let zero_dir = case_path.join("0");
         std::fs::create_dir_all(&zero_dir)?;
-        let fields: Vec<(&str, &str, &str)> = vec![
-            ("U", "volVectorField", "uniform (9.15 0 0)"),
-            ("p", "volScalarField", "uniform 0"),
-            ("k", "volScalarField", "uniform 0.314"),
-            ("omega", "volScalarField", "uniform 100"),
-            ("nut", "volScalarField", "uniform 0"),
-        ];
-        for (name, class, internal) in &fields {
-            let path = zero_dir.join(name);
-            if !path.exists() {
-                let dim = match *name {
-                    "U" => "[0 1 -1 0 0 0 0]",
-                    "p" => "[0 2 -2 0 0 0 0]",
-                    "k" => "[0 2 -2 0 0 0 0]",
-                    "omega" => "[0 0 -1 0 0 0 0]",
-                    "nut" => "[0 2 -1 0 0 0 0]",
-                    _ => "[0 0 0 0 0 0 0]",
-                };
-                let bc_body = if *name == "U" {
-                    r#"blade   { type fixedValue; value uniform (0 0 0); }
+
+        // Use WindTunnelBcGenerator if wind_tunnel config is present
+        if let Some(wt_cfg) = case_config.and_then(|c| c.wind_tunnel.as_ref()) {
+            let wall_patches = vec!["blade".to_string()];
+            let files = WindTunnelBcGenerator::generate_all(wt_cfg, &wall_patches);
+            for (name, content) in &files {
+                let path = zero_dir.join(name);
+                if !path.exists() {
+                    std::fs::write(&path, content.as_bytes())?;
+                }
+            }
+        } else {
+            // Legacy hardcoded field files
+            let fields: Vec<(&str, &str, &str)> = vec![
+                ("U", "volVectorField", "uniform (9.15 0 0)"),
+                ("p", "volScalarField", "uniform 0"),
+                ("k", "volScalarField", "uniform 0.314"),
+                ("omega", "volScalarField", "uniform 100"),
+                ("nut", "volScalarField", "uniform 0"),
+            ];
+            for (name, class, internal) in &fields {
+                let path = zero_dir.join(name);
+                if !path.exists() {
+                    let dim = match *name {
+                        "U" => "[0 1 -1 0 0 0 0]",
+                        "p" => "[0 2 -2 0 0 0 0]",
+                        "k" => "[0 2 -2 0 0 0 0]",
+                        "omega" => "[0 0 -1 0 0 0 0]",
+                        "nut" => "[0 2 -1 0 0 0 0]",
+                        _ => "[0 0 0 0 0 0 0]",
+                    };
+                    let bc_body = if *name == "U" {
+                        r#"blade   { type fixedValue; value uniform (0 0 0); }
     inlet    { type fixedValue; value $internalField; }
     outlet   { type zeroGradient; }
     top      { type zeroGradient; }
@@ -632,8 +675,8 @@ RAS
     front    { type zeroGradient; }
     back     { type zeroGradient; }
     ".*"     { type zeroGradient; }"#
-                } else if *name == "p" {
-                    r#"blade   { type zeroGradient; }
+                    } else if *name == "p" {
+                        r#"blade   { type zeroGradient; }
     inlet    { type zeroGradient; }
     outlet   { type fixedValue; value uniform 0; }
     top      { type zeroGradient; }
@@ -641,8 +684,8 @@ RAS
     front    { type zeroGradient; }
     back     { type zeroGradient; }
     ".*"     { type zeroGradient; }"#
-                } else if *name == "nut" {
-                    r#"blade   { type nutUSpaldingWallFunction; value uniform 0; }
+                    } else if *name == "nut" {
+                        r#"blade   { type nutUSpaldingWallFunction; value uniform 0; }
     inlet    { type calculated; value $internalField; }
     outlet   { type calculated; value $internalField; }
     top      { type calculated; value $internalField; }
@@ -650,8 +693,8 @@ RAS
     front    { type calculated; value $internalField; }
     back     { type calculated; value $internalField; }
     ".*"     { type calculated; value $internalField; }"#
-                } else if *name == "k" {
-                    r#"blade   { type zeroGradient; }
+                    } else if *name == "k" || *name == "omega" {
+                        r#"blade   { type zeroGradient; }
     inlet    { type fixedValue; value $internalField; }
     outlet   { type zeroGradient; }
     top      { type zeroGradient; }
@@ -659,17 +702,8 @@ RAS
     front    { type zeroGradient; }
     back     { type zeroGradient; }
     ".*"     { type zeroGradient; }"#
-                } else if *name == "omega" {
-                    r#"blade   { type zeroGradient; }
-    inlet    { type fixedValue; value $internalField; }
-    outlet   { type zeroGradient; }
-    top      { type zeroGradient; }
-    bottom   { type zeroGradient; }
-    front    { type zeroGradient; }
-    back     { type zeroGradient; }
-    ".*"     { type zeroGradient; }"#
-                } else {
-                    r#"blade   { type zeroGradient; }
+                    } else {
+                        r#"blade   { type zeroGradient; }
     inlet    { type zeroGradient; }
     outlet   { type zeroGradient; }
     top      { type zeroGradient; }
@@ -677,25 +711,26 @@ RAS
     front    { type zeroGradient; }
     back     { type zeroGradient; }
     ".*"     { type zeroGradient; }"#
-                };
-                let content = format!(
-                    r#"FoamFile {{ version 2.0; format ascii; class {}; object {}; }}
+                    };
+                    let content = format!(
+                        r#"FoamFile {{ version 2.0; format ascii; class {}; object {}; }}
 dimensions {};
 internalField {};
 boundaryField {{
     {}
 }}
 "#, class, name, dim, internal, bc_body
-                );
-                std::fs::write(&path, content.as_bytes())?;
+                    );
+                    std::fs::write(&path, content.as_bytes())?;
+                }
             }
         }
 
         // Copy initial fields from 0/ to the latest time directory (snappyHexMesh may have written
         // mesh to a later time that has no field files yet).
         let latest_mesh_time = self.find_latest_mesh_time(case_path);
-        if let Some(ref t) = latest_mesh_time {
-            if t != "0" {
+        if let Some(ref t) = latest_mesh_time
+            && t != "0" {
                 let zero_dir = case_path.join("0");
                 let target_dir = case_path.join(t);
                 for entry in std::fs::read_dir(&zero_dir)? {
@@ -712,7 +747,6 @@ boundaryField {{
                     }
                 }
             }
-        }
 
         info!("  ✓ Solver configuration written");
         Ok(())
@@ -769,7 +803,7 @@ boundaryField {{
         Ok(stats)
     }
 
-    fn run_post_process(&self, case_path: &Path) -> Result<ForceCoefficients, anyhow::Error> {
+    fn run_post_process(&self, case_path: &Path, case_config: Option<&CaseConfig>) -> Result<ForceCoefficients, anyhow::Error> {
         info!("  Running postProcessing (forceCoeffs)...");
 
         // Run postProcess utility to compute force coefficients
@@ -779,6 +813,31 @@ boundaryField {{
                 "-func", "forceCoeffs",
             ])
             .output();
+
+        // Compute and persist wind tunnel results if DWT is active
+        if let Some(cfg) = case_config.and_then(|c| c.wind_tunnel.as_ref()) {
+            let stl_path = self.find_stl(case_path);
+            let geo_bounds = stl_path.as_ref().and_then(|p| {
+                let mg = GeoBounds::from_stl(p)?;
+                Some(aeroflow_core::types::GeoBounds {
+                    min_x: mg.min_x, max_x: mg.max_x,
+                    min_y: mg.min_y, max_y: mg.max_y,
+                    min_z: mg.min_z, max_z: mg.max_z,
+                })
+            });
+            if let Some(ref bounds) = geo_bounds {
+                let chord = WindTunnelDomainSizer::chord_from_bounds(bounds);
+                let forces = ForceExtractor::extract_from_case(&case_path.to_string_lossy()).ok();
+                let (cl, cd) = forces.map(|f| (f.cl, f.cd)).unwrap_or((0.0, 0.0));
+                let result = WindTunnelDomainSizer::compute_result(bounds, chord, Some(cfg), cl, cd);
+                if let Ok(json) = serde_json::to_string(&result) {
+                    let _ = std::fs::write(case_path.join("wind_tunnel_result.json"), &json);
+                    info!("  ✓ Wind tunnel result written to wind_tunnel_result.json");
+                }
+            } else {
+                warn!("  Skipping wind tunnel result: could not read STL bounds");
+            }
+        }
 
         // Try parsing existing force data (postProcess may have already run or data may exist)
         match ForceExtractor::extract_from_case(&case_path.to_string_lossy()) {
@@ -790,12 +849,11 @@ boundaryField {{
                 // If postProcess failed and no data exists, return zeros
                 if let Err(p_err) = output {
                     warn!("postProcess command failed: {}. Using zero forces.", p_err);
-                } else if let Ok(out) = output {
-                    if !out.status.success() {
+                } else if let Ok(out) = output
+                    && !out.status.success() {
                         let stderr = String::from_utf8_lossy(&out.stderr);
                         warn!("postProcess warnings: {}", stderr);
                     }
-                }
                 warn!("Could not extract forces: {}. Returning zeros.", e);
                 Ok(ForceCoefficients {
                     cl: 0.0, cd: 0.0, cm: 0.0, cl_std: 0.0, cd_std: 0.0,
@@ -831,7 +889,7 @@ boundaryField {{
         let report_dir = case_path.join("report");
         std::fs::create_dir_all(&report_dir)?;
 
-        let report_path = report_dir.join("index.html");
+        let _report_path = report_dir.join("index.html");
 
         let engine = aeroflow_report::ReportGenerator::new()?;
         engine.generate_html_report(
@@ -891,7 +949,7 @@ boundaryField {{
     fn transition(&mut self, case_id: CaseId, stage: Stage) {
         if let Some(meta) = self.cases.get_mut(&case_id) {
             let prev = meta.stage.label();
-            meta.stage = stage.clone();
+            meta.stage = stage;
             meta.updated_at = chrono::Utc::now();
             tracing::info!("Case {}: {} → {}", case_id, prev, stage.label());
         }
@@ -914,7 +972,7 @@ boundaryField {{
         self.active_cases
             .iter()
             .filter(|(_, s)| !s.is_terminal())
-            .map(|(id, s)| (*id, s.clone()))
+            .map(|(id, s)| (*id, *s))
             .collect()
     }
 }
@@ -951,72 +1009,58 @@ fn parse_checkmesh_output(output: &str) -> MeshQualityMetrics {
 
     for line in output.lines() {
         // Cells: "cells:   1847321"
-        if line.trim().starts_with("cells:") {
-            if let Some(val) = line.split_whitespace().nth(1) {
-                if let Ok(n) = val.replace(',', "").parse::<u64>() {
+        if line.trim().starts_with("cells:")
+            && let Some(val) = line.split_whitespace().nth(1)
+                && let Ok(n) = val.replace(',', "").parse::<u64>() {
                     metrics.n_cells = n;
                 }
-            }
-        }
 
         // Non-orthogonality: "Mesh non-orthogonality Max: 54.3 average: 5.95"
         if line.contains("non-orthogonality") || line.contains("Non-orthogonality") {
-            if let Some(max_part) = line.split("Max: ").nth(1).or_else(|| line.split("Maximum = ").nth(1)) {
-                if let Some(v) = parse_first_f64(max_part) {
+            if let Some(max_part) = line.split("Max: ").nth(1).or_else(|| line.split("Maximum = ").nth(1))
+                && let Some(v) = parse_first_f64(max_part) {
                     metrics.max_non_orthogonality = metrics.max_non_orthogonality.max(v);
                 }
-            }
-            if let Some(avg_part) = line.split("average: ").nth(1).or_else(|| line.split("average = ").nth(1)) {
-                if let Some(v) = parse_first_f64(avg_part) {
+            if let Some(avg_part) = line.split("average: ").nth(1).or_else(|| line.split("average = ").nth(1))
+                && let Some(v) = parse_first_f64(avg_part) {
                     metrics.avg_non_orthogonality = v;
                 }
-            }
         }
 
         // Skewness: "Max skewness = 4.9958392, 4 highly skew faces..."
-        if line.contains("skewness") {
-            if let Some(val) = line.split('=').nth(1) {
-                if let Some(v) = parse_first_f64(val) {
+        if line.contains("skewness")
+            && let Some(val) = line.split('=').nth(1)
+                && let Some(v) = parse_first_f64(val) {
                     metrics.max_skewness = metrics.max_skewness.max(v);
                 }
-            }
-        }
 
         // Determinant: "minimum = 0.12"
-        if line.contains("determinant") || line.contains("Determinant") {
-            if let Some(val) = line.split('=').nth(1) {
-                if let Some(v) = parse_first_f64(val) {
+        if (line.contains("determinant") || line.contains("Determinant"))
+            && let Some(val) = line.split('=').nth(1)
+                && let Some(v) = parse_first_f64(val) {
                     metrics.min_determinant = metrics.min_determinant.min(v);
                 }
-            }
-        }
 
         // Aspect ratio: "Max aspect ratio = 6.19 OK."
-        if line.contains("aspect ratio") || line.contains("Aspect ratio") {
-            if let Some(val) = line.split('=').nth(1) {
-                if let Some(v) = parse_first_f64(val) {
+        if (line.contains("aspect ratio") || line.contains("Aspect ratio"))
+            && let Some(val) = line.split('=').nth(1)
+                && let Some(v) = parse_first_f64(val) {
                     metrics.max_aspect_ratio = metrics.max_aspect_ratio.max(v);
                 }
-            }
-        }
 
         // Failed checks: "Failed 1 mesh checks."
-        if line.contains("Failed") && line.contains("mesh checks") {
-            if let Some(val) = line.split_whitespace().nth(1) {
-                if let Ok(n) = val.parse::<u64>() {
+        if line.contains("Failed") && line.contains("mesh checks")
+            && let Some(val) = line.split_whitespace().nth(1)
+                && let Ok(n) = val.parse::<u64>() {
                     failed_cells = n;
                 }
-            }
-        }
 
         // Min volume: "Min volume = 2.4e-11. Max volume = ..."
-        if line.contains("Min volume") || line.contains("minimum volume") {
-            if let Some(val) = line.split('=').nth(1) {
-                if let Some(v) = parse_first_f64(val) {
+        if (line.contains("Min volume") || line.contains("minimum volume"))
+            && let Some(val) = line.split('=').nth(1)
+                && let Some(v) = parse_first_f64(val) {
                     metrics.min_volume = v;
                 }
-            }
-        }
     }
 
     metrics.n_failed_cells = failed_cells;

@@ -118,12 +118,46 @@ pub async fn execute(name: Option<String>) -> anyhow::Result<()> {
 
     let flow_type = flow_opts[flow_idx];
 
+    // Digital Wind Tunnel configuration (optional)
+    let wt_upstream: f64;
+    let wt_downstream: f64;
+    let wt_vertical: f64;
+    let wt_lateral: f64;
+    if flow_idx == 2 {
+        println!("\n  ── Digital Wind Tunnel Configuration ──");
+        wt_upstream = Input::new()
+            .with_prompt("  Upstream distance (chord multiples)")
+            .default(20.0)
+            .interact_text()?;
+        wt_downstream = Input::new()
+            .with_prompt("  Downstream distance (chord multiples)")
+            .default(40.0)
+            .interact_text()?;
+        wt_vertical = Input::new()
+            .with_prompt("  Vertical half-height (chord multiples)")
+            .default(25.0)
+            .interact_text()?;
+        wt_lateral = Input::new()
+            .with_prompt("  Lateral half-width (chord multiples)")
+            .default(25.0)
+            .interact_text()?;
+    } else {
+        wt_upstream = 20.0;
+        wt_downstream = 40.0;
+        wt_vertical = 25.0;
+        wt_lateral = 25.0;
+    }
+
     println!("\n  Solver:          {solver}");
     println!("  Turbulence:      {turb_model}");
     println!("  Flow type:       {flow_type}");
     println!("  Velocity:        {velocity} m/s");
     println!("  Compressibility: {}", comp_opts[comp_idx]);
     println!("  Accuracy:        {}", acc_opts[acc_idx]);
+    if flow_idx == 2 {
+        println!("  Wind tunnel:     {}c up, {}c down, {}c vert, {}c lat",
+            wt_upstream, wt_downstream, wt_vertical, wt_lateral);
+    }
     println!();
 
     let confirm = Confirm::new()
@@ -162,6 +196,19 @@ pub async fn execute(name: Option<String>) -> anyhow::Result<()> {
         ).await?;
         info!("Case '{}' created in DB (id={})", case_name, case_id);
 
+        // Build wind_tunnel config for manifest
+        let wind_tunnel = if flow_idx == 2 {
+            Some(serde_json::json!({
+                "upstream": wt_upstream,
+                "downstream": wt_downstream,
+                "vertical": wt_vertical,
+                "lateral": wt_lateral,
+                "velocity_m_s": velocity,
+            }))
+        } else {
+            None
+        };
+
         // Save manifest
         let manifest = serde_json::json!({
             "name": case_name,
@@ -173,6 +220,7 @@ pub async fn execute(name: Option<String>) -> anyhow::Result<()> {
             "velocity": velocity,
             "compressibility": comp_opts[comp_idx],
             "accuracy": acc_opts[acc_idx],
+            "wind_tunnel": wind_tunnel,
             "workspace": workspace_root,
             "stl_file": stl_dest.to_string_lossy(),
             "created_at": chrono::Utc::now().to_rfc3339(),

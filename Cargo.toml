@@ -15,10 +15,11 @@ members = [
     "crates/aeroflow-learner",
     "crates/aeroflow-events",
     "crates/aeroflow-api",
+    "crates/aeroflow-llm",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["Jettanakorn Pengsiri by JFOX Aircraft Co., Ltd."]
 license = "MIT"

@@ -1,4 +1,5 @@
-use aeroflow_core::{IntakeConfig, MeshParams, MeshQualityMetrics, OpenFOAMFormat};
+use aeroflow_core::{IntakeConfig, MeshParams, MeshQualityMetrics, OpenFOAMFormat, WindTunnelConfig};
+use crate::WindTunnelBlockMesh;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -18,9 +19,9 @@ impl GeoBounds {
             .output().ok()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
-            if line.contains("Bounding Box") {
-                if let Some(bbox) = line.split(':').nth(1) {
-                    let parts: Vec<&str> = bbox.trim().split_whitespace().collect();
+            if line.contains("Bounding Box")
+                && let Some(bbox) = line.split(':').nth(1) {
+                    let parts: Vec<&str> = bbox.split_whitespace().collect();
                     if parts.len() >= 6 {
                         let min_x = parts[0].trim_start_matches('(').parse().ok()?;
                         let min_y = parts[1].parse().ok()?;
@@ -31,7 +32,6 @@ impl GeoBounds {
                         return Some(Self { min_x, max_x, min_y, max_y, min_z, max_z });
                     }
                 }
-            }
         }
         None
     }
@@ -39,6 +39,12 @@ impl GeoBounds {
 
 pub struct MeshGenerator {
     write_format: OpenFOAMFormat,
+}
+
+impl Default for MeshGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MeshGenerator {
@@ -150,6 +156,29 @@ mergePatchPairs ();
             x_max, y_max, z_max,
             x_min, y_max, z_max,
             cells_x, cells_y, cells_z, grading)
+    }
+
+    /// Generate blockMeshDict sized for a digital wind tunnel around geometry bounds.
+    /// Delegates to `WindTunnelBlockMesh` for the two-block asymmetric grading layout.
+    /// Generate blockMeshDict sized for a digital wind tunnel around geometry bounds.
+    /// Delegates to `WindTunnelBlockMesh` for the two-block asymmetric grading layout.
+    pub fn generate_wind_tunnel_blockmesh(
+        &self,
+        bounds: &GeoBounds,
+        config: Option<&WindTunnelConfig>,
+    ) -> String {
+        let chord = chord_from_bounds(bounds);
+        let core_bounds = aeroflow_core::GeoBounds {
+            min_x: bounds.min_x, max_x: bounds.max_x,
+            min_y: bounds.min_y, max_y: bounds.max_y,
+            min_z: bounds.min_z, max_z: bounds.max_z,
+        };
+        let (x_min, x_max, y_min, y_max, z_min, z_max) =
+            aeroflow_core::WindTunnelDomainSizer::domain_bounds(&core_bounds, chord, config);
+        WindTunnelBlockMesh::generate(
+            (x_min, x_max, y_min, y_max, z_min, z_max),
+            config,
+        )
     }
 
     pub fn generate_snappy_dict(&self, config: &IntakeConfig) -> String {
@@ -381,4 +410,12 @@ meshQualityControls
         let u_tau = u_inf * (cf / 2.0).sqrt();
         target_yplus * nu / u_tau
     }
+}
+
+/// Extract the reference length (chord) from a geometry bounding box.
+fn chord_from_bounds(bounds: &GeoBounds) -> f64 {
+    let dx = bounds.max_x - bounds.min_x;
+    let dy = bounds.max_y - bounds.min_y;
+    let dz = bounds.max_z - bounds.min_z;
+    dx.max(dy).max(dz).max(0.01)
 }

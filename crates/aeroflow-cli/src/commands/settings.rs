@@ -1,5 +1,23 @@
 use aeroflow_core::{AeroflowSettings, SettingsManager, WorkspaceManager, OpenFOAMFormat};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_settings_path_with_explicit_path() {
+        let custom = "custom/path".to_string();
+        let path = get_settings_path(Some(&custom));
+        assert_eq!(path, "custom/path");
+    }
+
+    #[test]
+    fn get_settings_path_none_returns_string() {
+        let path = get_settings_path(None);
+        assert!(!path.is_empty());
+    }
+}
+
 fn get_settings_path(action_arg: Option<&String>) -> String {
     if let Some(p) = action_arg {
         return p.clone();

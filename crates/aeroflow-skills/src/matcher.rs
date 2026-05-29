@@ -10,6 +10,12 @@ pub struct SkillMatch {
 
 pub struct SkillMatcher;
 
+impl Default for SkillMatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillMatcher {
     pub fn new() -> Self {
         Self
@@ -53,5 +59,42 @@ impl SkillMatcher {
         // Stub: parse and compare regime ranges
         let _ = (skill_regime, target_mach, target_re);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_flow_regime_key_subsonic() {
+        let key = SkillMatcher::compute_flow_regime_key(0.2, 1e5, "external");
+        assert_eq!(key, "external_Ma0.0-0.3_Re1e5");
+    }
+
+    #[test]
+    fn test_compute_flow_regime_key_transonic() {
+        let key = SkillMatcher::compute_flow_regime_key(1.0, 1e6, "external");
+        assert_eq!(key, "external_Ma0.8-1.2_Re1e6");
+    }
+
+    #[test]
+    fn test_compute_flow_regime_key_supersonic() {
+        let key = SkillMatcher::compute_flow_regime_key(3.0, 1e7, "internal");
+        assert_eq!(key, "internal_Ma1.2-5.0_Re1e7");
+    }
+
+    #[test]
+    fn test_compute_flow_regime_key_hypersonic() {
+        let key = SkillMatcher::compute_flow_regime_key(6.0, 1e5, "external");
+        assert_eq!(key, "external_Ma5.0+_Re1e5");
+    }
+
+    #[test]
+    fn test_compute_flow_regime_key_contains_substrings() {
+        let key = SkillMatcher::compute_flow_regime_key(0.5, 5e5, "internal");
+        assert!(key.contains("Ma0.3-0.8"));
+        assert!(key.contains("Re1e5"));
+        assert!(key.contains("internal"));
     }
 }

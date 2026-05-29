@@ -73,7 +73,7 @@ pub async fn run_checks(category_filter: Option<HealthCategory>) -> Vec<HealthCh
     let mut results = Vec::new();
 
     let should_run = |cat: HealthCategory| -> bool {
-        category_filter.as_ref().map_or(true, |f| *f == cat)
+        category_filter.as_ref().is_none_or(|f| *f == cat)
     };
 
     // ── Docker checks ──────────────────────────────────────────
@@ -291,7 +291,7 @@ pub async fn run_checks(category_filter: Option<HealthCategory>) -> Vec<HealthCh
         let used_mem = sys.used_memory();
         let total_gb = total_mem as f64 / 1_073_741_824.0;
         let used_gb = used_mem as f64 / 1_073_741_824.0;
-        let mem_pct = if total_mem > 0 { (used_mem * 100 / total_mem) as u32 } else { 0 };
+        let mem_pct = if total_mem > 0 { ((used_mem as f64 / total_mem as f64) * 100.0) as u32 } else { 0 };
 
         if cpu_count >= 2 {
             results.push(pass(

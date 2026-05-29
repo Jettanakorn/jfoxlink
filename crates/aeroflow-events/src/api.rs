@@ -1,6 +1,12 @@
 /// Web API module — moved to aeroflow-api crate for P3
 pub struct WebApi;
 
+impl Default for WebApi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebApi {
     pub fn new() -> Self {
         Self

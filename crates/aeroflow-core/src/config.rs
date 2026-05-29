@@ -95,21 +95,19 @@ impl SettingsManager {
         // Try global config file first
         if let Some(global) = crate::WorkspaceManager::global_settings_file() {
             let path = std::path::Path::new(&global);
-            if path.exists() {
-                if let Ok(mgr) = Self::from_file(path) {
+            if path.exists()
+                && let Ok(mgr) = Self::from_file(path) {
                     return mgr;
                 }
-            }
         }
         // Then try workspace settings
         if let Ok(ws) = std::env::var("AEROFLOW_WORKSPACE_DIR") {
             let ws_path = crate::WorkspaceManager::settings_file(&ws);
             let path = std::path::Path::new(&ws_path);
-            if path.exists() {
-                if let Ok(mgr) = Self::from_file(path) {
+            if path.exists()
+                && let Ok(mgr) = Self::from_file(path) {
                     return mgr;
                 }
-            }
         }
         let mut mgr = Self {
             settings: AeroflowSettings::default(),
@@ -165,21 +163,18 @@ impl SettingsManager {
         if let Ok(v) = std::env::var("AEROFLOW_OPENFOAM_IMAGE") {
             self.settings.openfoam_image = v;
         }
-        if let Ok(v) = std::env::var("AEROFLOW_MAX_CONCURRENT") {
-            if let Ok(n) = v.parse() {
+        if let Ok(v) = std::env::var("AEROFLOW_MAX_CONCURRENT")
+            && let Ok(n) = v.parse() {
                 self.settings.max_concurrent_cases = n;
             }
-        }
-        if let Ok(v) = std::env::var("AEROFLOW_DEFAULT_CORES") {
-            if let Ok(n) = v.parse() {
+        if let Ok(v) = std::env::var("AEROFLOW_DEFAULT_CORES")
+            && let Ok(n) = v.parse() {
                 self.settings.default_cores = n;
             }
-        }
-        if let Ok(v) = std::env::var("AEROFLOW_DEFAULT_MEMORY_GB") {
-            if let Ok(n) = v.parse() {
+        if let Ok(v) = std::env::var("AEROFLOW_DEFAULT_MEMORY_GB")
+            && let Ok(n) = v.parse() {
                 self.settings.default_memory_gb = n;
             }
-        }
     }
 
     /// Get the workspace layout from the workspace dir

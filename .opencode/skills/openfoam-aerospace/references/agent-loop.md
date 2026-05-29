@@ -187,6 +187,74 @@ scoring:
   w_Cd:       0.35
   w_yplus:    0.15
   w_residual: 0.15
+
+# ══════════════════════════════════════════════════════════════
+# EXTENDED PHYSICS (leave null/false for standard aero cases)
+# ══════════════════════════════════════════════════════════════
+
+# ── Rotating Machinery ────────────────────────────────────────
+rotating:
+  enabled: false
+  approach: null              # "MRF" | "AMI"
+  omega_rad_s: null           # angular velocity
+  axis: [0, 0, 1]
+  origin: [0, 0, 0]
+  RPM: null                   # alternative to omega_rad_s
+  rotating_patches: []        # list of patch names in rotor zone
+  target_CT: null             # thrust coefficient
+  target_CP_max: null         # power coefficient
+  target_eta_min: null        # efficiency
+  target_pressure_ratio: null # for turbomachinery
+
+# ── Electromagnetic / MHD ─────────────────────────────────────
+electromagnetic:
+  enabled: false
+  model: null                 # "low-Rm-MHD" | "full-MHD" | "DBD-actuator" | "EHD" | "induction-heating"
+  sigma_S_m: null             # electrical conductivity
+  B0_T: null                  # applied magnetic field magnitude
+  B0_direction: [0, 1, 0]     # direction of applied B
+  wall_conductivity: "insulating"  # "insulating" | "conducting"
+  actuator_voltage_kV: null   # for DBD
+  actuator_frequency_Hz: null
+
+# ── Hypersonic ────────────────────────────────────────────────
+hypersonic:
+  enabled: false
+  real_gas: false
+  chemistry: null             # "none" | "5-species-Park" | "11-species-Park"
+  two_temperature: false
+  rarefied: false             # if Kn > 0.01, switches to dsmcFoam
+  T_wall_K: null              # null = adiabatic
+  wall_catalysis: "noncatalytic"   # "noncatalytic" | "fully_catalytic"
+  target_CD: null
+  target_peak_heat_flux_W_m2: null
+
+# ── Thermal / CHT ─────────────────────────────────────────────
+thermal:
+  enabled: false
+  problem_type: null          # "forced_convection" | "CHT" | "natural_convection" | "radiation"
+  fluid: "air"
+  solid_material: null        # e.g. "steel", "aluminum", "ceramic" — for CHT
+  T_inlet_K: null
+  T_wall_K: null
+  T_ambient_K: 300
+  heat_flux_W_m2: null
+  radiation: false
+  radiation_model: "fvDOM"    # "fvDOM" | "P1" | "viewFactor"
+  boiling: false
+  max_T_solid_K: null         # design limit — agent flags if exceeded
+  target_Nu: null
+  target_effectiveness: null  # for film cooling
+
+# ── Custom Solver ─────────────────────────────────────────────
+custom_solver:
+  build_new: false
+  solver_name: null           # e.g. "mhdReactingFoam"
+  base_solver: null           # closest existing solver
+  physics_modules: []         # from custom-solver.md §4 module library
+  coupling_strategy: null     # "segregated-SIMPLE" | "segregated-PISO" | "operator-split"
+  time_treatment: "steady"
+  validation_case: null
 ```
 
 ---
@@ -202,6 +270,18 @@ RULE P1 — Solver Selection
   0.3-0.8   → rhoSimpleFoam / rhoPimpleFoam
   0.8-1.2   → rhoCentralFoam (AUSM+ flux)
   Ma > 1.2  → rhoCentralFoam + sonicFoam fallback
+  Ma > 5.0  → rhoCentralFoam + real gas EOS (JANAF)
+  Ma > 8.0 + chemistry → hy2Foam or reactingFoam
+  Kn > 0.01 → dsmcFoam (rarefied, override all above)
+
+RULE P1b — Extended Physics Solver Override
+  rotating.enabled=true + AMI  → base solver + dynamicMeshDict (pimpleFoam)
+  rotating.enabled=true + MRF  → base solver + MRFProperties (simpleFoam)
+  electromagnetic.model=low-Rm-MHD → mhdFoam (incompressible) or custom Lorentz fvOptions
+  electromagnetic.model=DBD-actuator → base solver + vectorSemiImplicitSource fvOptions
+  thermal.problem_type=CHT     → chtMultiRegionSimpleFoam or chtMultiRegionFoam
+  thermal.problem_type=natural_convection → buoyantSimpleFoam
+  custom_solver.build_new=true → STOP: read references/custom-solver.md, run build loop
 
 RULE P2 — Turbulence Model
   Re > 1e6, attached flow, priority=speed  → Spalart-Allmaras
@@ -209,24 +289,33 @@ RULE P2 — Turbulence Model
   Separated flow or adverse pressure gradient → k-omega SST (low-Re)
   Ma > 0.5 → k-omega SST (compressible formulation)
   Wake/noise required → LES WALE (pimpleFoam)
+  rotating.enabled=true → k-omega SST preferred (handles adverse dp/dx in blade BL)
+  hypersonic.enabled=true + Ma > 8 → Disable RANS; use laminar or 2-eq in shock layer
 
 RULE P3 — Mesh Density
   priority=speed  → coarse: ~50k cells (2D), ~2M cells (3D)
   priority=balanced → medium: ~150k cells (2D), ~8M cells (3D)
   priority=accuracy → fine: ~400k cells (2D), ~25M cells (3D)
   Re > 5e6 or Ma > 0.5 → bump one density level up
+  electromagnetic + Ha > 10 → add Hartmann layer cells: y1 < L/(5*Ha)
+  hypersonic.enabled=true → add shock refinement box; 3–5 cells across shock; stagnation y1 < 1e-5m
+  rotating.AMI=true → add 5-cell refinement in tip clearance gap
 
 RULE P4 — First Cell Height (y1)
   target_yplus_max <= 1 →  y1 = (target_yplus * nu) / u_tau
                             u_tau = U_inf * sqrt(0.5 * Cf)
                             Cf = 0.026 / Re^(1/7)  [turbulent flat plate estimate]
   target_yplus 30-300  →  y1 = 30 * nu / u_tau
+  MHD Hartmann layer  →  y1 < δ_Ha / 5 = L / (5 * Ha)  [OVERRIDES standard y+ rule]
+  thermal CHT + Pr > 5 →  y1 such that y+ <= 1 [MANDATORY for high-Pr heat transfer]
 
 RULE P5 — Relaxation Factors
   priority=speed    → U:0.8, p:0.4, k:0.6, omega:0.6
   priority=balanced → U:0.7, p:0.3, k:0.5, omega:0.5
   priority=accuracy → U:0.5, p:0.2, k:0.4, omega:0.4
   If iter > 1 and previous run diverged → reduce all by 0.1
+  CHT: add T relaxation 0.5 in both solid and fluid fvSolution
+  electromagnetic: add phi_E relaxation 0.7
 
 RULE P6 — Numerical Schemes
   Ma < 0.3 → Gauss linearUpwindV for div(phi,U); Gauss upwind for turbulence
@@ -307,6 +396,49 @@ FIX F7 — y+ out of target range
              (use yPlus from previous run if available)
          2. Rebuild prism layer in snappyHexMesh
          3. If y+ too high by factor >3: switch to wall functions
+
+FIX F8 — AMI non-matching faces / interface warning (ROTATING)
+  Cause: Rotor-stator interface mesh not sufficiently conformal
+  Fix:   1. Increase matchTolerance in cyclicAMI patch to 0.005
+         2. Ensure inner and outer cylinder radii are identical in blockMesh
+         3. Re-run snappyHexMesh with conformal interface layer
+
+FIX F9 — mhdFoam diverges at high Hartmann number (EM/MHD)
+  Cause: Hartmann boundary layer unresolved (y1 too large)
+  Fix:   1. Compute δ_Ha = L/Ha; set y1 < δ_Ha/5
+         2. Rebuild mesh with geometric progression toward Hartmann walls
+         3. Lower relaxation factors for B field to 0.5
+
+FIX F10 — Bow shock carbuncle instability (HYPERSONIC)
+  Cause: Kurganov flux on mesh aligned with normal shock
+  Fix:   1. Switch fluxScheme to AUSM+
+         2. Refine stagnation region: >= 20 cells in shock layer
+         3. Add limitedLinear 1 to div(phi,U)
+
+FIX F11 — Temperature blow-up in solid (CHT)
+  Cause: kappa too low or solid region not fully enclosed
+  Fix:   1. Verify kappa units in solid thermophysicalProperties: W/(m·K)
+         2. Confirm solid mesh boundary is closed; no open patches
+         3. Reduce T relaxation to 0.3 in solid fvSolution
+
+FIX F12 — CHT interface T discontinuity
+  Cause: Incorrect coupled BC type on interface patches
+  Fix:   1. Verify BOTH sides use turbulentTemperatureCoupledBaffleMixed
+         2. Check kappaMethod: fluidThermo (fluid) vs solidThermo (solid)
+         3. Ensure interface patches are 1:1 conformal (no AMI unless specified)
+
+FIX F13 — Chemistry ODE timeout (HYPERSONIC / REACTING)
+  Cause: Stiff reactions near shock or cold-wall recombination zone
+  Fix:   1. Switch chemistrySolver to SIBS or Rosenbrock (not EulerImplicit)
+         2. Set maxDeltaT in chemistryProperties to 1e-9 near shock
+         3. Consider partitioned chemistry: solve in hot cells only
+
+FIX F14 — Custom solver compile error (CUSTOM SOLVER)
+  Cause: Missing library link or include path
+  Fix:   1. Parse linker error: identify undefined symbol → find owning library
+         2. Add -l<library> to Make/options EXE_LIBS
+         3. Add -I$(LIB_SRC)/<module>/lnInclude to EXE_INC
+         4. Run: wclean && wmake; verify binary in $FOAM_USER_APPBIN
 ```
 
 ---

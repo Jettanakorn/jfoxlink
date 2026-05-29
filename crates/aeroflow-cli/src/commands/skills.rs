@@ -57,15 +57,14 @@ pub async fn execute(action: &SkillsAction) -> anyhow::Result<()> {
                             println!("  Score:      {:.2}", s.reward_score);
 
                             // Fetch trials
-                            if let Ok(trials) = db.get_trials(s.id, 10).await {
-                                if !trials.is_empty() {
+                            if let Ok(trials) = db.get_trials(s.id, 10).await
+                                && !trials.is_empty() {
                                     println!("\n  Recent Trials:");
                                     for t in &trials {
                                         println!("    reward={:.3} converged={} runtime={:?}s",
                                             t.reward, t.converged, t.runtime_s.map(|r| format!("{:.1}", r)).unwrap_or_else(|| "N/A".into()));
                                     }
                                 }
-                            }
                         }
                         None => {
                             println!("\n  Skill '{}' not found in database.", name);
@@ -115,6 +114,12 @@ pub async fn execute(action: &SkillsAction) -> anyhow::Result<()> {
                 priority: aeroflow_core::Priority::Balanced,
                 hpc_cores: 4,
                 time_budget_hours: 24.0,
+                rotating: None,
+                hypersonic: None,
+                cht: None,
+                mhd: None,
+                pemfc: None,
+                wind_tunnel: None,
             };
 
             // Build the trial runner: maps MeshParamsTrial -> real CFD pipeline
@@ -138,7 +143,7 @@ pub async fn execute(action: &SkillsAction) -> anyhow::Result<()> {
                 };
                 let mut orch = PipelineOrchestrator::new("/tmp".into(), 1);
                 let cid = orch.register_case("trial");
-                match orch.run_pipeline(cid, &trial_dir, "simpleFoam", None, Some(&mesh_params)) {
+                match orch.run_pipeline(cid, &trial_dir, "simpleFoam", None, Some(&mesh_params), None) {
                     Ok(res) => Ok(TrialOutput {
                         cd: res.forces.cd,
                         cl: res.forces.cl,
@@ -171,7 +176,7 @@ pub async fn execute(action: &SkillsAction) -> anyhow::Result<()> {
 
             println!("\n  ✓ Best reward: {:.4}", best_reward);
             println!("  ✓ Best parameters: {:?}", results.iter()
-                .min_by(|a, b| a.reward.partial_cmp(&b.reward).unwrap())
+                .min_by(|a, b| a.reward.total_cmp(&b.reward))
                 .map(|r| &r.parameters));
         }
         SkillsAction::Export { name, format } => {
@@ -264,4 +269,50 @@ fn fallback_demo_show(name: &str) {
     println!("  Parameters:  kOmegaSST, simpleFoam, mesh=0.05m, layers=8");
     println!("\n  Reward History:");
     println!("    ▁▂▃▅▆▇██▇▇█");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_demo_list_does_not_panic() {
+        fallback_demo_list();
+    }
+
+    #[test]
+    fn fallback_demo_show_known_skill_does_not_panic() {
+        fallback_demo_show("airfoil-naca0012");
+    }
+
+    #[test]
+    fn fallback_demo_show_nonexistent_skill_does_not_panic() {
+        fallback_demo_show("nonexistent");
+    }
+
+    #[test]
+    fn write_mesh_params_creates_file() {
+        use aeroflow_learner::MeshParamsTrial;
+        let tmp = std::env::temp_dir().join(format!("aeroflow_test_skills_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir for skills test");
+
+        let mp = MeshParamsTrial {
+            surface_min_level: 3,
+            surface_max_level: 6,
+            region_min_level: 2,
+            region_max_level: 5,
+            n_cells_between_levels: 4,
+        };
+        let result = write_mesh_params(&tmp, &mp);
+        assert!(result.is_ok());
+
+        let manifest_path = tmp.join("manifest_trial.json");
+        assert!(manifest_path.exists());
+
+        let content = std::fs::read_to_string(&manifest_path).expect("read manifest_trial.json");
+        assert!(content.contains("surface_min_level"));
+        assert!(content.contains("surface_max_level"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
