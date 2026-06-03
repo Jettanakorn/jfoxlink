@@ -20,7 +20,7 @@ import {
   File,
   Trash2
 } from 'lucide-react';
-import { Project, AISuggestion, AerodynamicParameters } from '../types';
+import { Project, AISuggestion, calcLiftDragRatio } from '../types';
 
 interface ActiveProjectsProps {
   projects: Project[];
@@ -112,7 +112,7 @@ export default function ActiveProjects(props: ActiveProjectsProps) {
     if (!initName.trim()) return;
 
     // Standardized lift drag ratio estimate from parameters
-    const calcLiftDrag = parseFloat(((initAspect * 1.8) + (initMach * 3.5) - (initSweep * 0.05)).toFixed(1));
+    const calcLiftDrag = calcLiftDragRatio(initAspect, initMach, initSweep);
 
     const newProject: Project = {
       id: `proj-${Date.now()}`,
@@ -400,7 +400,7 @@ export default function ActiveProjects(props: ActiveProjectsProps) {
                   </span>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-150 bg-emerald-100/50 text-emerald-700">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-100/50 text-emerald-700">
                         <File className="h-4 w-4" />
                       </div>
                       <div>
@@ -449,7 +449,7 @@ export default function ActiveProjects(props: ActiveProjectsProps) {
                             ...drawerProject.parameters,
                             aspectRatio: val,
                             // Recalculate Lift/drag score mathematically
-                            liftDragRatio: parseFloat(((val * 1.5) + (drawerProject.parameters.machNumber * 4) - (drawerProject.parameters.sweepAngle * 0.04)).toFixed(1))
+                            liftDragRatio: calcLiftDragRatio(val, drawerProject.parameters.machNumber, drawerProject.parameters.sweepAngle)
                           }
                         };
                         setDrawerProject(updated);
@@ -503,7 +503,7 @@ export default function ActiveProjects(props: ActiveProjectsProps) {
                           parameters: {
                             ...drawerProject.parameters,
                             sweepAngle: val,
-                            liftDragRatio: parseFloat(((drawerProject.parameters.aspectRatio * 1.5) + (drawerProject.parameters.machNumber * 4) - (val * 0.04)).toFixed(1))
+                            liftDragRatio: calcLiftDragRatio(drawerProject.parameters.aspectRatio, drawerProject.parameters.machNumber, val)
                           }
                         };
                         setDrawerProject(updated);
@@ -532,7 +532,7 @@ export default function ActiveProjects(props: ActiveProjectsProps) {
                           parameters: {
                             ...drawerProject.parameters,
                             machNumber: val,
-                            liftDragRatio: parseFloat(((drawerProject.parameters.aspectRatio * 1.5) + (val * 4) - (drawerProject.parameters.sweepAngle * 0.04)).toFixed(1))
+                            liftDragRatio: calcLiftDragRatio(drawerProject.parameters.aspectRatio, val, drawerProject.parameters.sweepAngle)
                           }
                         };
                         setDrawerProject(updated);

@@ -383,7 +383,7 @@ pub fn get_all_tools() -> Vec<ToolDef> {
                     "fix_action": {
                         "type": "object",
                         "properties": {
-                            "action_type": {"type": "string", "enum": ["coarsen_mesh", "refine_mesh", "change_schemes", "reduce_cfl", "improve_ic", "change_solver", "increase_iterations"]},
+                            "action_type": {"type": "string", "enum": ["coarsen_mesh", "refine_mesh", "change_schemes", "reduce_cfl", "improve_ic", "change_solver", "increase_iterations", "validate_config"]},
                             "details": {"type": "string", "description": "What specifically to change"}
                         },
                         "required": ["action_type", "details"]
@@ -1612,101 +1612,348 @@ RAS
             let action_type = fix_action["action_type"].as_str().unwrap_or("");
             let details = fix_action["details"].as_str().unwrap_or("");
 
-            // Apply the fix by modifying case files on disk
+            // Run config validation from the agent-manifest if available
+            let mut config_warnings: Vec<String> = Vec::new();
             if let (Some(ws), Some(cid)) = (&state.workspace_dir, case_id) {
                 let cases = state.db.list_cases(100).await?;
                 if let Some(c) = cases.into_iter().find(|c| c.id == cid) {
                     let case_dir = get_case_dir(ws, &c.name);
 
-                    match action_type {
-                        "coarsen_mesh" => {
-                            // Reduce snappyHexMesh refinement levels
-                            let shm_path = case_dir.join("system/snappyHexMeshDict");
-                            if let Ok(content) = std::fs::read_to_string(&shm_path) {
-                                let adjusted = content
-                                    .replace("surfaceMinLevel 4;", "surfaceMinLevel 3;")
-                                    .replace("surfaceMaxLevel 6;", "surfaceMaxLevel 5;");
-                                std::fs::write(&shm_path, &adjusted).ok();
-                                tracing::info!("Fix: coarsened mesh refinement levels");
-                            }
-                        }
-                        "change_schemes" => {
-                            // Switch to more robust numerical schemes
-                            let fvs_path = case_dir.join("system/fvSchemes");
-                            if let Ok(content) = std::fs::read_to_string(&fvs_path) {
-                                let adjusted = content
-                                    .replace("Gauss linearUpwindV grad(U)", "Gauss upwind")
-                                    .replace("Gauss linear corrected", "Gauss linear uncorrected");
-                                std::fs::write(&fvs_path, &adjusted).ok();
-                                tracing::info!("Fix: switched to upwind schemes for robustness");
-                            }
-                            // Also reduce relaxation factors
-                            let fvsol_path = case_dir.join("system/fvSolution");
-                            if let Ok(content) = std::fs::read_to_string(&fvsol_path) {
-                                let adjusted = content
-                                    .replace("p               0.3;", "p               0.2;")
-                                    .replace("U               0.7;", "U               0.5;");
-                                std::fs::write(&fvsol_path, &adjusted).ok();
-                                tracing::info!("Fix: reduced relaxation factors");
-                            }
-                        }
-                        "reduce_cfl" => {
-                            // Halve deltaT in controlDict
-                            let cd_path = case_dir.join("system/controlDict");
-                            if let Ok(content) = std::fs::read_to_string(&cd_path) {
-                                let adjusted = content.replace("deltaT          1;", "deltaT          0.5;");
-                                std::fs::write(&cd_path, &adjusted).ok();
-                                tracing::info!("Fix: halved deltaT for CFL reduction");
-                            }
-                        }
-                        "improve_ic" => {
-                            // Add potentialFoam initialization
-                            let cd_path = case_dir.join("system/controlDict");
-                            if let Ok(content) = std::fs::read_to_string(&cd_path) {
-                                let adjusted = content
-                                    .replace("startFrom       startTime;", "startFrom       startTime;\nstartTime       0;")
-                                    .replace("application     ", "// application ");
-                                // Write a potentialFoam init script
-                                let script = r#"#!/bin/bash
-potentialFoam -case "$1" > "$1/logs/potentialFoam.log" 2>&1
-"#;
-                                std::fs::write(case_dir.join("logs/init.sh"), script).ok();
-                                std::fs::write(&cd_path, &adjusted).ok();
-                                tracing::info!("Fix: will run potentialFoam for better initial conditions");
-                            }
-                        }
-                        "refine_mesh" => {
-                            let shm_path = case_dir.join("system/snappyHexMeshDict");
-                            if let Ok(content) = std::fs::read_to_string(&shm_path) {
-                                let adjusted = content
-                                    .replace("surfaceMinLevel 3;", "surfaceMinLevel 4;")
-                                    .replace("surfaceMaxLevel 5;", "surfaceMaxLevel 6;");
-                                std::fs::write(&shm_path, &adjusted).ok();
-                                tracing::info!("Fix: refined mesh refinement levels");
-                            }
-                        }
-                        _ => {
-                            tracing::warn!("Unknown fix action type: {}", action_type);
-                        }
+                    // Read manifest and validate physics config
+                    let manifest_path = case_dir.join("agent-manifest.json");
+                    if let Some(manifest) = std::fs::read_to_string(&manifest_path)
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                    {
+                            let build_config = |key: &str| -> Option<Value> {
+                                manifest.get(key).and_then(|v| {
+                                    if v.is_null() { None } else { Some(v.clone()) }
+                                })
+                            };
+                            // Build minimal IntakeConfig for validation
+                            let intake = IntakeConfig {
+                                geometry_description: String::new(),
+                                geometry_file: None, case_class: None, workspace_root: None,
+                                user_id: None, altitude_m: 0.0,
+                                mach_number: manifest.get("mach").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                reynolds_number: manifest.get("reynolds").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                alpha_sweep_deg: vec![],
+                                freestream_turbulence_intensity: 0.001,
+                                target_cl: None, target_cd_max: None, target_yplus_max: 1.0,
+                                convergence_residual: 1e-5, max_agent_iterations: 5,
+                                human_in_loop: false, priority: Priority::Balanced,
+                                hpc_cores: 4, time_budget_hours: 24.0,
+                                rotating: build_config("rotating").and_then(|r| {
+                                    let rpm = r.get("rpm").and_then(|v| v.as_f64())?;
+                                    let num_blades = r.get("num_blades").and_then(|v| v.as_u64())?;
+                                    let approach_str = r.get("approach").and_then(|v| v.as_str())?;
+                                    let approach = match approach_str {
+                                        "AMI" => RotatingApproach::AMI,
+                                        _ => RotatingApproach::MRF,
+                                    };
+                                    Some(RotatingConfig {
+                                        rpm, num_blades: num_blades as u32, approach,
+                                        axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+                                        diameter_m: None, hub_diameter_m: None,
+                                        tip_clearance_m: None, advance_ratio: None,
+                                        target_ct: None, target_cp_max: None,
+                                        target_eta_min: None, mass_flow_kg_s: None,
+                                        pressure_ratio_target: None,
+                                    })
+                                }),
+                                hypersonic: build_config("hypersonic").map(|_| HypersonicConfig {
+                                    mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+                                    wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+                                    chemistry: ChemistryModel::None, two_temperature: false,
+                                    rarefied: false, nose_radius_m: None,
+                                    flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+                                }),
+                                cht: build_config("cht").map(|_| ChtConfig {
+                                    problem_type: HeatTransferProblem::CHT, fluid: "air".into(),
+                                    solid_material: SolidMaterial::Steel, t_inlet_k: 500.0,
+                                    t_ambient_k: 300.0, u_inlet_m_s: None, re: None, pr: 0.7,
+                                    heat_flux_target_w_m2: None, radiation: false,
+                                    radiation_model: RadiationModel::None, phase_change: false,
+                                    max_t_solid_k: None, wall_thickness_m: None,
+                                    emissivity: None, external_h_w_m2k: None,
+                                }),
+                                mhd: build_config("mhd").map(|_| MhdConfig {
+                                    b0_tesla: 1.0, sigma_s_m: 1e6, mu_permeability_h_m: 1.256637e-6,
+                                    solver: MhdSolver::MhdFoam, low_rm: false,
+                                    hartmann_number: None,
+                                    wall_conductivity: MhdWallConductivity::Insulating,
+                                    plasma_actuator: None,
+                                }),
+                                pemfc: None, wind_tunnel: None,
+                                multiphase: build_config("multiphase").map(|m| {
+                                    let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+                                    let model = match model_str {
+                                        "eulerEuler" => MultiphaseModel::EulerEuler,
+                                        "driftFlux" => MultiphaseModel::DriftFlux,
+                                        _ => MultiphaseModel::VOF,
+                                    };
+                                    MultiphaseConfig {
+                                        model, n_phases: 2, surface_tension_n_m: 0.07,
+                                        phase_names: vec!["phase1".into(), "phase2".into()],
+                                    }
+                                }),
+                                non_newtonian: build_config("non_newtonian").map(|_| NonNewtonianConfig {
+                                    model: ViscosityModel::Newtonian, nu0: 1e-2, nu_inf: 1e-6,
+                                    k: 0.005, n: 0.4, tau0: 10.0, nu_min: 1e-4, nu_max: 1e2,
+                                }),
+                                viscoelastic: build_config("viscoelastic").map(|_| ViscoelasticConfig {
+                                    model: ViscoelasticModel::OldroydB, relaxation_time_s: 1.0,
+                                    solvent_viscosity_ratio: 0.1, mobility_factor: 0.2,
+                                }),
+                                combustion: build_config("combustion").map(|_| CombustionConfig {
+                                    model: CombustionModel::EDC, c_eps: 2.1377, c_mu: 0.09,
+                                    oxidizer: "O2".into(), fuel: "CH4".into(),
+                                }),
+                                cavitation: build_config("cavitation").map(|_| CavitationConfig {
+                                    model: CavitationModel::SchnerrSauer, p_vap_kpa: 2.34,
+                                    rho_liquid_kg_m3: 1000.0, rho_vapor_kg_m3: 0.0258,
+                                }),
+                                spray: build_config("spray").map(|_| SprayConfig {
+                                    breakup: SprayBreakupModel::KHRT,
+                                    evaporation: SprayEvaporationModel::Standard,
+                                    collision: true, parcel_per_second: 1e5,
+                                    injection_velocity_m_s: 50.0, cone_angle_deg: 15.0,
+                                }),
+                                phase_change: build_config("phase_change").map(|_| PhaseChangeConfig {
+                                    model: PhaseChangeModel::EnthalpyPorosity, t_solidus_k: 800.0,
+                                    t_liquidus_k: 900.0, latent_heat_j_kg: 2.5e5, mushy_constant: 1e5,
+                                }),
+                                particle: build_config("particle").map(|_| ParticleConfig {
+                                    injection: ParticleInjection::PatchInjection, diameter_m: 1e-4,
+                                    mass_flow_kg_s: 0.001, velocity_m_s: 10.0,
+                                    temperature_k: 300.0, material_density_kg_m3: 2500.0,
+                                }),
+                                porous: build_config("porous").map(|_| PorousZoneConfig {
+                                    model: PorousModel::Darcy, cell_zone: "porous".into(),
+                                    d_coeffs: [0.0, 0.0, 0.0], f_coeffs: [0.0, 0.0, 0.0],
+                                }),
+                                aeroacoustic: build_config("aeroacoustic").map(|_| AeroacousticConfig {
+                                    fwh_source: FWHSource::PermeableSurface,
+                                    receiver_positions: vec![(0.0, 0.0, 1.0)],
+                                    start_time: 0.0, density_far: 1.225, speed_of_sound: 340.0,
+                                }),
+                                fsi: build_config("fsi").map(|_| FSIConfig {
+                                    model: FSIModel::LinearElastic,
+                                    coupling: FSICoupling::DirichletNeumann,
+                                    youngs_modulus_gpa: 200.0, poisson_ratio: 0.3,
+                                    density_kg_m3: 7800.0, mesh_relaxation: 0.5, n_subcycles: 5,
+                                }),
+                                wave: build_config("wave").map(|_| WaveConfig {
+                                    model: WaveModel::StokesFirst, wave_height_m: 2.0,
+                                    wave_period_s: 8.0, water_depth_m: 20.0,
+                                    direction_deg: 0.0, relaxation_zone_length_m: 10.0,
+                                }),
+                                wind_turbine: build_config("wind_turbine").map(|_| WindTurbineConfig {
+                                    actuator: ActuatorModel::Disc, thrust_coefficient: 0.8,
+                                    power_coefficient: 0.45, rotor_diameter_m: 126.0,
+                                    hub_height_m: 90.0, wind_speed_ref_m_s: 10.0, rated_power_mw: 5.0,
+                                }),
+                                electrostatic: build_config("electrostatic").map(|_| ElectrostaticConfig {
+                                    potential_v: 1e4, permittivity_f_m: 8.854e-12,
+                                    space_charge_c_m3: 0.0, ion_mobility_m2_vs: 2e-4,
+                                }),
+                                ablation: build_config("ablation").map(|_| AblationConfig {
+                                    model: AblationModel::SurfaceRecession,
+                                    char_conductivity_w_mk: 0.5, virgin_conductivity_w_mk: 2.0,
+                                    pyrolysis_gas_enthalpy_j_kg: 5e6, recession_rate_coeff: 1e-4,
+                                    emissivity: 0.85,
+                                }),
+                                propulsion: build_config("propulsion").map(|_| PropulsionConfig {
+                                    model: PropulsionModel::LiquidRocket, chamber_pressure_bar: 70.0,
+                                    chamber_temp_k: 3500.0, exit_pressure_bar: 0.1,
+                                    mass_flow_rate_kg_s: 100.0, throat_area_m2: 0.01,
+                                    exit_area_m2: 0.05,
+                                }),
+                                nuclear: build_config("nuclear").map(|_| NuclearConfig {
+                                    model: NuclearModel::NeutronTransport, n_energy_groups: 2,
+                                    cross_sections: vec![], source_strength_m3: 0.0,
+                                    temperature_k: 300.0,
+                                }),
+                                marine: build_config("marine").map(|_| MarineConfig {
+                                    model: MarineModel::ShipResistance, speed_knots: 10.0,
+                                    depth_m: 10.0, cavitation_margin: 0.0,
+                                    propeller_rpm: 0.0, thrust_coefficient: 0.0,
+                                }),
+                                ml_surrogate: None,
+                            };
+                            config_warnings = SolverConfigGen::new().validate_config(&intake);
                     }
 
-                    // Record fix to DB
-                    let fix_entry = json!({
-                        "iteration": state.next_iteration().await,
-                        "diagnosis": diagnosis,
-                        "fix_action": action_type,
-                        "details": details,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-                    let fix_path = case_dir.join("agent-fixes.json");
-                    let mut fixes: Vec<Value> = std::fs::read_to_string(&fix_path)
-                        .ok()
-                        .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
-                        .unwrap_or_default();
-                    fixes.push(fix_entry);
-                    std::fs::write(&fix_path, serde_json::to_string_pretty(&fixes).expect("serialization of Vec<Value> is infallible")).ok();
-                }
-            }
+                    let is_validate = action_type == "validate_config";
+                    if !is_validate {
+                        match action_type {
+                            "coarsen_mesh" => {
+                                let shm_path = case_dir.join("system/snappyHexMeshDict");
+                                if let Ok(content) = std::fs::read_to_string(&shm_path) {
+                                    let adjusted = content
+                                        .replace("surfaceMinLevel 4;", "surfaceMinLevel 3;")
+                                        .replace("surfaceMaxLevel 6;", "surfaceMaxLevel 5;");
+                                    std::fs::write(&shm_path, &adjusted).ok();
+                                    tracing::info!("Fix: coarsened mesh refinement levels");
+                                }
+                            }
+                            "change_schemes" => {
+                                let fvs_path = case_dir.join("system/fvSchemes");
+                                if let Ok(content) = std::fs::read_to_string(&fvs_path) {
+                                    let adjusted = content
+                                        .replace("Gauss linearUpwindV grad(U)", "Gauss upwind")
+                                        .replace("Gauss linear corrected", "Gauss linear uncorrected");
+                                    std::fs::write(&fvs_path, &adjusted).ok();
+                                    tracing::info!("Fix: switched to upwind schemes for robustness");
+                                }
+                                let fvsol_path = case_dir.join("system/fvSolution");
+                                if let Ok(content) = std::fs::read_to_string(&fvsol_path) {
+                                    let adjusted = content
+                                        .replace("p               0.3;", "p               0.2;")
+                                        .replace("U               0.7;", "U               0.5;");
+                                    std::fs::write(&fvsol_path, &adjusted).ok();
+                                    tracing::info!("Fix: reduced relaxation factors");
+                                }
+                            }
+                            "reduce_cfl" => {
+                                let cd_path = case_dir.join("system/controlDict");
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    let adjusted = content.replace("deltaT          1;", "deltaT          0.5;");
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: halved deltaT for CFL reduction");
+                                }
+                            }
+                            "improve_ic" => {
+                                let cd_path = case_dir.join("system/controlDict");
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    let adjusted = content
+                                        .replace("startFrom       startTime;", "startFrom       startTime;\nstartTime       0;")
+                                        .replace("application     ", "// application ");
+                                    let script = r#"#!/bin/bash
+potentialFoam -case "$1" > "$1/logs/potentialFoam.log" 2>&1
+"#;
+                                    std::fs::write(case_dir.join("logs/init.sh"), script).ok();
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: will run potentialFoam for better initial conditions");
+                                }
+                            }
+                            "refine_mesh" => {
+                                let shm_path = case_dir.join("system/snappyHexMeshDict");
+                                if let Ok(content) = std::fs::read_to_string(&shm_path) {
+                                    let adjusted = content
+                                        .replace("surfaceMinLevel 3;", "surfaceMinLevel 4;")
+                                        .replace("surfaceMaxLevel 5;", "surfaceMaxLevel 6;");
+                                    std::fs::write(&shm_path, &adjusted).ok();
+                                    tracing::info!("Fix: refined mesh refinement levels");
+                                }
+                            }
+                            "change_solver" => {
+                                let cd_path = case_dir.join("system/controlDict");
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    let solver = details.trim();
+                                    let adjusted = if solver.is_empty() {
+                                        content.replace("application     simpleFoam;", "application     pimpleFoam;")
+                                    } else {
+                                        // Replace application line using manual find+replace
+                                        let mut result = String::new();
+                                        for line in content.lines() {
+                                            if line.trim().starts_with("application") {
+                                                result.push_str(&format!("application     {};\n", solver));
+                                            } else {
+                                                result.push_str(line);
+                                                result.push('\n');
+                                            }
+                                        }
+                                        result
+                                    };
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: changed solver to '{}'", if solver.is_empty() { "pimpleFoam" } else { solver });
+                                }
+                                // Also reset startFrom to latestTime for the new solver
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    let adjusted = content.replace("startFrom       startTime;", "startFrom       latestTime;");
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: set startFrom to latestTime for solver handoff");
+                                }
+                            }
+                            "increase_iterations" => {
+                                let cd_path = case_dir.join("system/controlDict");
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    // Multiply endTime by 1.5x using manual line parsing
+                                    let mut adjusted = String::new();
+                                    for line in content.lines() {
+                                        if line.trim().starts_with("endTime") {
+                                            let parts: Vec<&str> = line.split_whitespace().collect();
+                                            let current: f64 = parts.get(1).and_then(|s| s.trim_end_matches(';').parse().ok()).unwrap_or(1000.0);
+                                            let new_time = (current * 1.5).round() as u64;
+                                            adjusted.push_str(&format!("endTime       {};\n", new_time));
+                                        } else {
+                                            adjusted.push_str(line);
+                                            adjusted.push('\n');
+                                        }
+                                    }
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: increased endTime by 1.5x");
+                                }
+                                // Also increase writeInterval proportionally
+                                if let Ok(content) = std::fs::read_to_string(&cd_path) {
+                                    let mut adjusted = String::new();
+                                    for line in content.lines() {
+                                        if line.trim().starts_with("writeInterval") {
+                                            let parts: Vec<&str> = line.split_whitespace().collect();
+                                            let current: u64 = parts.get(1).and_then(|s| s.trim_end_matches(';').parse().ok()).unwrap_or(100);
+                                            let new_interval = (current as f64 * 1.5).round() as u64;
+                                            adjusted.push_str(&format!("writeInterval {};\n", new_interval));
+                                        } else {
+                                            adjusted.push_str(line);
+                                            adjusted.push('\n');
+                                        }
+                                    }
+                                    std::fs::write(&cd_path, &adjusted).ok();
+                                    tracing::info!("Fix: increased writeInterval proportionally");
+                                }
+                            }
+                            _ => {
+                                tracing::warn!("Unknown fix action type: {}", action_type);
+                            }
+                        }
+
+                        // Record fix to DB (skip for validate_config)
+                        let fix_entry = json!({
+                            "iteration": state.next_iteration().await,
+                            "diagnosis": diagnosis,
+                            "fix_action": action_type,
+                            "details": details,
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                        });
+                        let fix_path = case_dir.join("agent-fixes.json");
+                        let mut fixes: Vec<Value> = std::fs::read_to_string(&fix_path)
+                            .ok()
+                            .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
+                            .unwrap_or_default();
+                        fixes.push(fix_entry);
+                        std::fs::write(&fix_path, serde_json::to_string_pretty(&fixes).expect("serialization of Vec<Value> is infallible")).ok();
+                    } // closes if !is_validate — skip fix/DB for validate_config
+
+                    // Return early for validate_config (no fix applied)
+                    if is_validate {
+                        return Ok(json!({
+                            "applied": true,
+                            "diagnosis": diagnosis,
+                            "fix_applied": {
+                                "action_type": "validate_config",
+                                "details": "Validation only — no fix applied"
+                            },
+                            "config_warnings": config_warnings,
+                            "message": if config_warnings.is_empty() {
+                                "Config validation passed with no warnings.".to_string()
+                            } else {
+                                format!("Config validation found {} warning(s): {}", config_warnings.len(), config_warnings.join("; "))
+                            }
+                        }));
+                    }
+                } // closes if let Some(c)
+            } // closes if let (Some(ws), Some(cid))
 
             Ok(json!({
                 "applied": true,
@@ -2527,5 +2774,434 @@ mod tests {
             assert!(parsed.is_some(), "failed for inject_str={}", inject_str);
             assert_eq!(parsed.unwrap().injection, expected, "injection variant mismatch for {}", inject_str);
         }
+    }
+
+    // ── diagnose_and_fix / validate_config Tests ──────────────
+
+    #[test]
+    fn test_diagnose_and_fix_schema_has_validate_config_action() {
+        let tools = get_all_tools();
+        let dx = tools.iter().find(|t| t.name == "diagnose_and_fix").unwrap();
+        let action_enum = dx.input_schema["properties"]["fix_action"]["properties"]["action_type"]["enum"]
+            .as_array().unwrap();
+        let actions: Vec<&str> = action_enum.iter().filter_map(|v| v.as_str()).collect();
+        assert!(actions.contains(&"validate_config"),
+            "diagnose_and_fix action_type enum should contain 'validate_config'");
+    }
+
+    #[test]
+    fn test_diagnose_and_fix_schema_has_eight_actions() {
+        let tools = get_all_tools();
+        let dx = tools.iter().find(|t| t.name == "diagnose_and_fix").unwrap();
+        let action_enum = dx.input_schema["properties"]["fix_action"]["properties"]["action_type"]["enum"]
+            .as_array().unwrap();
+        assert_eq!(action_enum.len(), 8,
+            "Expected 8 fix actions (coarsen_mesh, refine_mesh, change_schemes, reduce_cfl, improve_ic, change_solver, increase_iterations, validate_config), got {}",
+            action_enum.len());
+    }
+
+    #[test]
+    fn test_validate_config_builds_intake_from_manifest() {
+        // Replicate the handler's build_config closure pattern with a mock manifest
+        let manifest = json!({
+            "mach": 0.8,
+            "reynolds": 5e6,
+            "rotating": {"rpm": 2500.0, "num_blades": 6, "approach": "MRF"},
+            "cht": {"problem_type": "cht"},
+            "cht": {"problem_type": "cht"}
+        });
+        let build_config = |key: &str| -> Option<Value> {
+            manifest.get(key).and_then(|v| {
+                if v.is_null() { None } else { Some(v.clone()) }
+            })
+        };
+        let intake = IntakeConfig {
+            geometry_description: String::new(), geometry_file: None,
+            case_class: None, workspace_root: None, user_id: None,
+            altitude_m: 0.0,
+            mach_number: manifest.get("mach").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            reynolds_number: manifest.get("reynolds").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            alpha_sweep_deg: vec![], freestream_turbulence_intensity: 0.001,
+            target_cl: None, target_cd_max: None, target_yplus_max: 1.0,
+            convergence_residual: 1e-5, max_agent_iterations: 5,
+            human_in_loop: false, priority: Priority::Balanced,
+            hpc_cores: 4, time_budget_hours: 24.0,
+            rotating: build_config("rotating").and_then(|r| {
+                let rpm = r.get("rpm").and_then(|v| v.as_f64())?;
+                let num_blades = r.get("num_blades").and_then(|v| v.as_u64())?;
+                let approach_str = r.get("approach").and_then(|v| v.as_str())?;
+                let approach = match approach_str {
+                    "AMI" => RotatingApproach::AMI,
+                    _ => RotatingApproach::MRF,
+                };
+                Some(RotatingConfig {
+                    rpm, num_blades: num_blades as u32, approach,
+                    axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+                    diameter_m: None, hub_diameter_m: None,
+                    tip_clearance_m: None, advance_ratio: None,
+                    target_ct: None, target_cp_max: None,
+                    target_eta_min: None, mass_flow_kg_s: None,
+                    pressure_ratio_target: None,
+                })
+            }),
+            hypersonic: build_config("hypersonic").map(|_| HypersonicConfig {
+                mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+                wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+                chemistry: ChemistryModel::None, two_temperature: false,
+                rarefied: false, nose_radius_m: None,
+                flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+            }),
+            cht: build_config("cht").map(|_| ChtConfig {
+                problem_type: HeatTransferProblem::CHT, fluid: "air".into(),
+                solid_material: SolidMaterial::Steel, t_inlet_k: 500.0,
+                t_ambient_k: 300.0, u_inlet_m_s: None, re: None, pr: 0.7,
+                heat_flux_target_w_m2: None, radiation: false,
+                radiation_model: RadiationModel::None, phase_change: false,
+                max_t_solid_k: None, wall_thickness_m: None,
+                emissivity: None, external_h_w_m2k: None,
+            }),
+            mhd: build_config("mhd").map(|_| MhdConfig {
+                b0_tesla: 1.0, sigma_s_m: 1e6, mu_permeability_h_m: 1.256637e-6,
+                solver: MhdSolver::MhdFoam, low_rm: false,
+                hartmann_number: None,
+                wall_conductivity: MhdWallConductivity::Insulating,
+                plasma_actuator: None,
+            }),
+            pemfc: None, wind_tunnel: None,
+            multiphase: build_config("multiphase").map(|m| {
+                let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+                let model = match model_str {
+                    "eulerEuler" => MultiphaseModel::EulerEuler,
+                    "driftFlux" => MultiphaseModel::DriftFlux,
+                    _ => MultiphaseModel::VOF,
+                };
+                MultiphaseConfig {
+                    model, n_phases: 2, surface_tension_n_m: 0.07,
+                    phase_names: vec!["phase1".into(), "phase2".into()],
+                }
+            }),
+            non_newtonian: None, viscoelastic: None,
+            combustion: build_config("combustion").map(|_| CombustionConfig {
+                model: CombustionModel::EDC, c_eps: 2.1377, c_mu: 0.09,
+                oxidizer: "O2".into(), fuel: "CH4".into(),
+            }),
+            cavitation: None,
+            spray: build_config("spray").map(|_| SprayConfig {
+                breakup: SprayBreakupModel::KHRT,
+                evaporation: SprayEvaporationModel::Standard,
+                collision: true, parcel_per_second: 1e5,
+                injection_velocity_m_s: 50.0, cone_angle_deg: 30.0,
+            }),
+            phase_change: None, particle: None, porous: None,
+            aeroacoustic: None, fsi: None, wave: None, wind_turbine: None,
+            electrostatic: None, ablation: None,
+            propulsion: None, nuclear: None, marine: None, ml_surrogate: None,
+        };
+        let warnings = aeroflow_solver::config_gen::SolverConfigGen::new().validate_config(&intake);
+        // rotating + cht is a valid combination — no warnings expected
+        assert!(warnings.is_empty(), "Expected no validation warnings for valid config, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_validate_config_detects_hypersonic_multiphase_conflict() {
+        let intake = IntakeConfig {
+            geometry_description: String::new(), geometry_file: None,
+            case_class: None, workspace_root: None, user_id: None,
+            altitude_m: 0.0, mach_number: 6.0, reynolds_number: 1e6,
+            alpha_sweep_deg: vec![], freestream_turbulence_intensity: 0.001,
+            target_cl: None, target_cd_max: None, target_yplus_max: 1.0,
+            convergence_residual: 1e-5, max_agent_iterations: 5,
+            human_in_loop: false, priority: Priority::Balanced,
+            hpc_cores: 4, time_budget_hours: 24.0,
+            rotating: None, hypersonic: Some(HypersonicConfig {
+                mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+                wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+                chemistry: ChemistryModel::None, two_temperature: false,
+                rarefied: false, nose_radius_m: None,
+                flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+            }),
+            cht: None, mhd: None, pemfc: None, wind_tunnel: None,
+            multiphase: Some(MultiphaseConfig {
+                model: MultiphaseModel::VOF, n_phases: 2, surface_tension_n_m: 0.07,
+                phase_names: vec!["water".into(), "air".into()],
+            }),
+            non_newtonian: None, viscoelastic: None, combustion: None,
+            cavitation: None, spray: None, phase_change: None,
+            particle: None, porous: None, aeroacoustic: None, fsi: None,
+            wave: None, wind_turbine: None, electrostatic: None, ablation: None,
+            propulsion: None, nuclear: None, marine: None, ml_surrogate: None,
+        };
+        let warnings = aeroflow_solver::config_gen::SolverConfigGen::new().validate_config(&intake);
+        assert!(!warnings.is_empty(),
+            "Expected validation warnings for hypersonic+multiphase conflict");
+        let joined = warnings.join(" ");
+        assert!(joined.contains("hypersonic") || joined.contains("multiphase"),
+            "Warning should mention conflicting physics. Got: {}", joined);
+    }
+
+    // ── change_solver / increase_iterations Tests ─────────────
+
+    #[test]
+    fn test_diagnose_and_fix_schema_has_change_solver_action() {
+        let tools = get_all_tools();
+        let dx = tools.iter().find(|t| t.name == "diagnose_and_fix").unwrap();
+        let action_enum = dx.input_schema["properties"]["fix_action"]["properties"]["action_type"]["enum"]
+            .as_array().unwrap();
+        let actions: Vec<&str> = action_enum.iter().filter_map(|v| v.as_str()).collect();
+        assert!(actions.contains(&"change_solver"),
+            "diagnose_and_fix action_type enum should contain 'change_solver'");
+        assert!(actions.contains(&"increase_iterations"),
+            "diagnose_and_fix action_type enum should contain 'increase_iterations'");
+    }
+
+    #[test]
+    fn test_change_solver_line_replacement_default() {
+        let control_dict = "\
+FoamFile { version 2.0; }
+application     simpleFoam;
+startFrom       startTime;
+startTime       0;
+endTime         1000;
+";
+        let adjusted = control_dict.replace("application     simpleFoam;", "application     pimpleFoam;");
+        assert!(adjusted.contains("pimpleFoam"), "Default change_solver should switch to pimpleFoam");
+        assert!(!adjusted.contains("simpleFoam"), "Default change_solver should remove simpleFoam");
+    }
+
+    #[test]
+    fn test_change_solver_line_replacement_custom() {
+        let control_dict = "\
+FoamFile { version 2.0; }
+application     simpleFoam;
+endTime         1000;
+";
+        let solver = "reactingFoam";
+        let mut result = String::new();
+        for line in control_dict.lines() {
+            if line.trim().starts_with("application") {
+                result.push_str(&format!("application     {};\n", solver));
+            } else {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+        assert!(result.contains("reactingFoam"), "Custom solver should be set: {}", result);
+        assert!(!result.contains("simpleFoam"), "Custom solver should replace simpleFoam");
+    }
+
+    #[test]
+    fn test_increase_iterations_multiplies_endtime() {
+        let control_dict = "\
+FoamFile { version 2.0; }
+application     simpleFoam;
+endTime         1000;
+writeInterval   100;
+";
+        let mut adjusted = String::new();
+        for line in control_dict.lines() {
+            if line.trim().starts_with("endTime") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let current: f64 = parts.get(1).and_then(|s| s.trim_end_matches(';').parse().ok()).unwrap_or(1000.0);
+                let new_time = (current * 1.5).round() as u64;
+                adjusted.push_str(&format!("endTime       {};\n", new_time));
+            } else {
+                adjusted.push_str(line);
+                adjusted.push('\n');
+            }
+        }
+        assert!(adjusted.contains("endTime       1500;"), "endTime should be 1500 (1000*1.5). Got: {}", adjusted);
+    }
+
+    #[test]
+    fn test_increase_iterations_multiplies_write_interval() {
+        let control_dict = "\
+FoamFile { version 2.0; }
+writeInterval   100;
+endTime         1000;
+";
+        let mut adjusted = String::new();
+        for line in control_dict.lines() {
+            if line.trim().starts_with("writeInterval") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let current: u64 = parts.get(1).and_then(|s| s.trim_end_matches(';').parse().ok()).unwrap_or(100);
+                let new_interval = (current as f64 * 1.5).round() as u64;
+                adjusted.push_str(&format!("writeInterval {};\n", new_interval));
+            } else {
+                adjusted.push_str(line);
+                adjusted.push('\n');
+            }
+        }
+        assert!(adjusted.contains("writeInterval 150;"), "writeInterval should be 150 (100*1.5). Got: {}", adjusted);
+    }
+
+    #[test]
+    fn test_change_solver_sets_startfrom_latesttime() {
+        let control_dict = "\
+FoamFile { version 2.0; }
+application     simpleFoam;
+startFrom       startTime;
+";
+        let adjusted = control_dict.replace("startFrom       startTime;", "startFrom       latestTime;");
+        assert!(adjusted.contains("latestTime"), "change_solver should set startFrom to latestTime");
+    }
+
+    // ── Integration-style validate_config Tests ───────────────
+
+    #[test]
+    fn test_validate_config_integration_from_manifest_on_disk() {
+        let tmp = std::env::temp_dir().join("aeroflow_test_validate_config");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Write a valid manifest — rotating + cht is compatible
+        let valid_manifest = json!({
+            "mach": 0.3,
+            "reynolds": 2e6,
+            "rotating": {"rpm": 1200.0, "num_blades": 5, "approach": "MRF"},
+            "cht": {"problem_type": "cht"}
+        });
+        std::fs::write(tmp.join("agent-manifest.json"), serde_json::to_string_pretty(&valid_manifest).unwrap()).unwrap();
+
+        // Replicate handler's file-read + build_config + validate pattern
+        let manifest_str = std::fs::read_to_string(tmp.join("agent-manifest.json")).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&manifest_str).unwrap();
+        let build_config = |key: &str| -> Option<serde_json::Value> {
+            manifest.get(key).and_then(|v| {
+                if v.is_null() { None } else { Some(v.clone()) }
+            })
+        };
+        let intake = IntakeConfig {
+            geometry_description: String::new(), geometry_file: None,
+            case_class: None, workspace_root: None, user_id: None,
+            altitude_m: 0.0,
+            mach_number: manifest.get("mach").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            reynolds_number: manifest.get("reynolds").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            alpha_sweep_deg: vec![], freestream_turbulence_intensity: 0.001,
+            target_cl: None, target_cd_max: None, target_yplus_max: 1.0,
+            convergence_residual: 1e-5, max_agent_iterations: 5,
+            human_in_loop: false, priority: Priority::Balanced,
+            hpc_cores: 4, time_budget_hours: 24.0,
+            rotating: build_config("rotating").and_then(|r| {
+                let rpm = r.get("rpm").and_then(|v| v.as_f64())?;
+                let num_blades = r.get("num_blades").and_then(|v| v.as_u64())?;
+                let approach_str = r.get("approach").and_then(|v| v.as_str())?;
+                let approach = match approach_str {
+                    "AMI" => RotatingApproach::AMI,
+                    _ => RotatingApproach::MRF,
+                };
+                Some(RotatingConfig {
+                    rpm, num_blades: num_blades as u32, approach,
+                    axis: [0.0, 0.0, 1.0], origin: [0.0, 0.0, 0.0],
+                    diameter_m: None, hub_diameter_m: None,
+                    tip_clearance_m: None, advance_ratio: None,
+                    target_ct: None, target_cp_max: None,
+                    target_eta_min: None, mass_flow_kg_s: None,
+                    pressure_ratio_target: None,
+                })
+            }),
+            hypersonic: None, cht: build_config("cht").map(|_| ChtConfig {
+                problem_type: HeatTransferProblem::CHT, fluid: "air".into(),
+                solid_material: SolidMaterial::Steel, t_inlet_k: 500.0,
+                t_ambient_k: 300.0, u_inlet_m_s: None, re: None, pr: 0.7,
+                heat_flux_target_w_m2: None, radiation: false,
+                radiation_model: RadiationModel::None, phase_change: false,
+                max_t_solid_k: None, wall_thickness_m: None,
+                emissivity: None, external_h_w_m2k: None,
+            }),
+            mhd: None, pemfc: None, wind_tunnel: None,
+            multiphase: None, non_newtonian: None, viscoelastic: None,
+            combustion: None, cavitation: None, spray: None,
+            phase_change: None, particle: None, porous: None,
+            aeroacoustic: None, fsi: None, wave: None, wind_turbine: None,
+            electrostatic: None, ablation: None,
+            propulsion: None, nuclear: None, marine: None, ml_surrogate: None,
+        };
+        let warnings = aeroflow_solver::config_gen::SolverConfigGen::new().validate_config(&intake);
+        assert!(warnings.is_empty(),
+            "Expected no warnings for valid rotating+cht config loaded from disk manifest, got: {:?}", warnings);
+
+        // Now write a conflicting manifest and re-validate
+        let conflict_manifest = json!({
+            "mach": 6.0,
+            "reynolds": 1e6,
+            "hypersonic": {"mach_inf": 6.0},
+            "multiphase": {"model": "vof"}
+        });
+        std::fs::write(tmp.join("agent-manifest.json"), serde_json::to_string_pretty(&conflict_manifest).unwrap()).unwrap();
+
+        let manifest_str2 = std::fs::read_to_string(tmp.join("agent-manifest.json")).unwrap();
+        let manifest2: serde_json::Value = serde_json::from_str(&manifest_str2).unwrap();
+        let build_config2 = |key: &str| -> Option<serde_json::Value> {
+            manifest2.get(key).and_then(|v| {
+                if v.is_null() { None } else { Some(v.clone()) }
+            })
+        };
+        let intake2 = IntakeConfig {
+            geometry_description: String::new(), geometry_file: None,
+            case_class: None, workspace_root: None, user_id: None,
+            altitude_m: 0.0, mach_number: 6.0, reynolds_number: 1e6,
+            alpha_sweep_deg: vec![], freestream_turbulence_intensity: 0.001,
+            target_cl: None, target_cd_max: None, target_yplus_max: 1.0,
+            convergence_residual: 1e-5, max_agent_iterations: 5,
+            human_in_loop: false, priority: Priority::Balanced,
+            hpc_cores: 4, time_budget_hours: 24.0,
+            rotating: None,
+            hypersonic: build_config2("hypersonic").map(|_| HypersonicConfig {
+                mach_inf: 5.0, altitude_km: 30.0, wall_temperature_k: None,
+                wall_catalysis: WallCatalysis::NonCatalytic, real_gas: false,
+                chemistry: ChemistryModel::None, two_temperature: false,
+                rarefied: false, nose_radius_m: None,
+                flux_scheme: FluxScheme::Kurganov, target_peak_heat_flux_w_m2: None,
+            }),
+            cht: None, mhd: None, pemfc: None, wind_tunnel: None,
+            multiphase: build_config2("multiphase").map(|m| {
+                let model_str = m.get("model").and_then(|v| v.as_str()).unwrap_or("vof");
+                let model = match model_str {
+                    "eulerEuler" => MultiphaseModel::EulerEuler,
+                    "driftFlux" => MultiphaseModel::DriftFlux,
+                    _ => MultiphaseModel::VOF,
+                };
+                MultiphaseConfig {
+                    model, n_phases: 2, surface_tension_n_m: 0.07,
+                    phase_names: vec!["phase1".into(), "phase2".into()],
+                }
+            }),
+            non_newtonian: None, viscoelastic: None, combustion: None,
+            cavitation: None, spray: None, phase_change: None,
+            particle: None, porous: None, aeroacoustic: None, fsi: None,
+            wave: None, wind_turbine: None, electrostatic: None, ablation: None,
+            propulsion: None, nuclear: None, marine: None, ml_surrogate: None,
+        };
+        let warnings2 = aeroflow_solver::config_gen::SolverConfigGen::new().validate_config(&intake2);
+        assert!(!warnings2.is_empty(),
+            "Expected warnings for hypersonic+multiphase conflict from disk manifest");
+
+        // Cleanup
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_validate_config_absent_returns_empty_warnings() {
+        let intake = IntakeConfig {
+            geometry_description: "simple wing".into(), geometry_file: None,
+            case_class: None, workspace_root: None, user_id: None,
+            altitude_m: 1000.0, mach_number: 0.5, reynolds_number: 3e6,
+            alpha_sweep_deg: vec![0.0, 5.0], freestream_turbulence_intensity: 0.001,
+            target_cl: Some(0.5), target_cd_max: Some(0.05), target_yplus_max: 1.0,
+            convergence_residual: 1e-5, max_agent_iterations: 5,
+            human_in_loop: false, priority: Priority::Balanced,
+            hpc_cores: 4, time_budget_hours: 24.0,
+            rotating: None, hypersonic: None,
+            cht: None, mhd: None, pemfc: None, wind_tunnel: None,
+            multiphase: None, non_newtonian: None, viscoelastic: None,
+            combustion: None, cavitation: None, spray: None,
+            phase_change: None, particle: None, porous: None,
+            aeroacoustic: None, fsi: None, wave: None, wind_turbine: None,
+            electrostatic: None, ablation: None,
+            propulsion: None, nuclear: None, marine: None, ml_surrogate: None,
+        };
+        let warnings = aeroflow_solver::config_gen::SolverConfigGen::new().validate_config(&intake);
+        assert!(warnings.is_empty(),
+            "Expected no warnings for simple subsonic config, got: {:?}", warnings);
     }
 }

@@ -165,7 +165,7 @@ export default function Sidebar(props: SidebarProps) {
       {/* Upgrade Plan Modal */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="w-full max-w-md rounded-lg border border-brand-border bg-white p-5 shadow-2xl animate-scale-up">
+          <div className="w-full max-w-md rounded-lg border border-brand-border bg-white p-5 shadow-2xl animate-slide-up">
             <div className="flex items-center justify-between border-b border-brand-bg pb-3">
               <div className="flex items-center space-x-2">
                 <Sparkles className="h-5 w-5 text-brand-primary" />
@@ -200,7 +200,7 @@ export default function Sidebar(props: SidebarProps) {
                 className={`relative cursor-pointer rounded-lg border p-3 transition-all ${selectedPlanUpgrade === 'research' ? 'border-brand-primary bg-brand-container-low/50 ring-1 ring-brand-primary' : 'border-brand-border hover:bg-brand-bg'}`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-sans text-xs font-bold text-brand-text flex items-center gap-1">Research Multi-Node <span className="bg-brand-container font-mono text-[9px] px-1 py-0.2 rounded text-brand-primary uppercase">Best Value</span></span>
+                  <span className="font-sans text-xs font-bold text-brand-text flex items-center gap-1">Research Multi-Node <span className="bg-brand-container font-mono text-[9px] px-1 py-0.5 rounded text-brand-primary uppercase">Best Value</span></span>
                   <span className="font-mono text-xs font-bold text-brand-primary">$189/mo</span>
                 </div>
                 <p className="mt-1 font-sans text-[11px] text-brand-text-muted">Parallel multicore iterations. 20 simulations quota, 15K token compute.</p>

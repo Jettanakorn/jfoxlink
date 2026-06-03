@@ -9,12 +9,9 @@ import {
   ShieldCheck, 
   Coins, 
   X, 
-  BarChart2, 
   Printer, 
   ArrowDownToLine, 
-  Clock, 
-  Terminal,
-  FileSpreadsheet
+  Clock
 } from 'lucide-react';
 import { SystemLog } from '../types';
 
@@ -28,8 +25,6 @@ export default function AIPanel(props: AIPanelProps) {
   const [activeSheet, setActiveSheet] = useState<'billing' | 'privacy' | 'earning' | null>(null);
   const [hasSharedCluster, setHasSharedCluster] = useState(false);
   const [clusterStrength, setClusterStrength] = useState(75);
-  const [billingLimit, setBillingLimit] = useState(2500);
-
   // Download simulation records as a JSON file
   const triggerLogExport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(props.logs, null, 2));
@@ -117,7 +112,7 @@ export default function AIPanel(props: AIPanelProps) {
               </div>
             </div>
             <div className="rounded-md bg-brand-container p-1 text-brand-primary">
-              <Lightbulb className="h-4.5 w-4.5 text-brand-accent h-4.5 w-4.5" />
+              <Lightbulb className="h-4.5 w-4.5 text-brand-accent" />
             </div>
           </div>
           <p className="mt-2.5 font-sans text-xs text-brand-text-muted leading-relaxed">

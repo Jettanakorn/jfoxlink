@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, MapPin, Briefcase, Calendar, Edit3, X, Check, Camera } from 'lucide-react';
+import { Mail, MapPin, Briefcase, Calendar, Edit3, X, Check } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ProfileSectionProps {

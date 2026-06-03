@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, HelpCircle, Code, Award, ExternalLink, Columns, ChevronDown, Check } from 'lucide-react';
+import { BookOpen, HelpCircle, Code, Award, Check } from 'lucide-react';
 
 export default function DocGuide() {
   const [copiedEqId, setCopiedEqId] = useState<string | null>(null);

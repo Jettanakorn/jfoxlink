@@ -11,10 +11,8 @@ import {
   Sparkles,
   File,
   Layers,
-  CheckCircle2,
   Cpu,
-  ArrowRight,
-  Sparkle
+  ArrowRight
 } from 'lucide-react';
 import { preconfiguredAirfoils } from '../data';
 import { Project } from '../types';
@@ -386,9 +384,6 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
     };
   }, [selectedAirfoil, angleAttack, flowSpeed, chordLength, isSimulating, isStalled, activeProject]);
 
-  // List of projects containing CAD files to easily choose
-  const cadProjects = allProjects.filter(p => p.cadFile);
-
   return (
     <div className="space-y-5 animate-fade-in">
       {/* Header and overview block */}
@@ -546,7 +541,7 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
             <div className="space-y-1">
               <div className="flex items-center justify-between font-sans text-xs font-semibold text-brand-text">
                 <span>Angle of Attack</span>
-                <span className={`font-mono text-xs font-bold ${isStalled ? 'text-red-650 text-red-650 text-red-650 text-red-650 text-red-650 animate-pulse text-red-650 font-black' : 'text-brand-primary'}`}>
+                <span className={`font-mono text-xs font-bold ${isStalled ? 'text-red-600 font-black animate-pulse' : 'text-brand-primary'}`}>
                   {angleAttack}°
                 </span>
               </div>
@@ -614,7 +609,7 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
             {/* Top coordinate trace info banner */}
             <div className="flex items-center justify-between bg-brand-bg px-4 py-2 border-b border-brand-container-low font-mono text-[9px] text-brand-text-muted">
               <span>ACTIVE MODEL: {activeProject?.cadFile ? `${activeProject.cadFile.name} (${activeProject.cadFile.type})` : selectedAirfoil.name}</span>
-              <span className="flex items-center gap-1">SOLVER STATUS: <strong className={isStalled ? 'text-red-650 text-red-600' : 'text-emerald-600'}>{isStalled ? 'SEPARATED / STALL' : 'CONVERGED LAMINAR'}</strong></span>
+              <span className="flex items-center gap-1">SOLVER STATUS: <strong className={isStalled ? 'text-red-600' : 'text-emerald-600'}>{isStalled ? 'SEPARATED / STALL' : 'CONVERGED LAMINAR'}</strong></span>
             </div>
 
             {/* Canvas stage itself */}
@@ -667,7 +662,7 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
           {/* Engineering Monitors */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Cl Monitor */}
-            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs ${activeProject?.cadFile ? 'border-emerald-250 border-emerald-100' : 'border-brand-border'}`}>
+            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs ${activeProject?.cadFile ? 'border-emerald-200' : 'border-brand-border'}`}>
               <span className="font-sans text-[10.5px] font-bold text-brand-text-muted uppercase tracking-wide block">Lift Coefficient (Cl)</span>
               <div className="mt-1 font-mono text-2xl font-bold text-brand-text leading-none flex items-baseline gap-1.5">
                 {currentC_l}
@@ -677,7 +672,7 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
             </div>
 
             {/* Cd Monitor */}
-            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs ${activeProject?.cadFile ? 'border-emerald-250 border-emerald-100' : 'border-brand-border'}`}>
+            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs ${activeProject?.cadFile ? 'border-emerald-200' : 'border-brand-border'}`}>
               <span className="font-sans text-[10.5px] font-bold text-brand-text-muted uppercase tracking-wide block">Drag Coefficient (Cd)</span>
               <div className="mt-1 font-mono text-2xl font-bold text-brand-text leading-none flex items-baseline gap-1.5">
                 {currentC_d}
@@ -687,7 +682,7 @@ export default function CFDSimulator({ activeProject = null, allProjects = [], o
             </div>
 
             {/* Efficiency Ratio Cl/Cd */}
-            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs sm:col-span-2 lg:col-span-1 ${activeProject?.cadFile ? 'border-emerald-250 border-emerald-300' : 'border-brand-border'}`}>
+            <div className={`rounded-lg border bg-white p-3.5 shadow-2xs sm:col-span-2 lg:col-span-1 ${activeProject?.cadFile ? 'border-emerald-300' : 'border-brand-border'}`}>
               <span className="font-sans text-[10.5px] font-bold text-brand-text-muted uppercase tracking-wide block">Ultimate L/D Ratio</span>
               <div className={`mt-1 font-mono text-2xl font-bold leading-none flex items-baseline gap-1.5 ${activeProject?.cadFile ? 'text-emerald-600' : 'text-brand-primary'}`}>
                 {(currentC_l / currentC_d).toFixed(1)}

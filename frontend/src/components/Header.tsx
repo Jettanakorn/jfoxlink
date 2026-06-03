@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Bell, Settings, HelpCircle, Search, User, Shield, Key, Sparkles, X, Check } from 'lucide-react';
+import { Bell, Settings, HelpCircle, Search, Shield, Key, Sparkles, X, Check } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface HeaderProps {
   user: UserProfile;
-  onChangeUser: (updates: Partial<UserProfile>) => void;
   onNavigate: (tab: string) => void;
   activeTab: string;
 }

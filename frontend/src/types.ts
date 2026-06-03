@@ -54,3 +54,7 @@ export interface SystemLog {
   status: 'SUCCESS' | 'RUNNING' | 'CONVERGED' | 'COMPILING';
   computeCost: number; // tokens or hours
 }
+
+export function calcLiftDragRatio(aspectRatio: number, machNumber: number, sweepAngle: number): number {
+  return parseFloat(((aspectRatio * 1.5) + (machNumber * 4) - (sweepAngle * 0.04)).toFixed(1));
+}

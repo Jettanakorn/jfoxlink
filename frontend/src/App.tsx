@@ -4,7 +4,7 @@ import {
   initialProjects, 
   initialLogs 
 } from './data';
-import { Project, UserProfile, SystemLog } from './types';
+import { Project, UserProfile, SystemLog, calcLiftDragRatio } from './types';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ProfileSection from './components/ProfileSection';
@@ -15,9 +15,6 @@ import DocGuide from './components/DocGuide';
 import { 
   X, 
   Terminal, 
-  FileSpreadsheet, 
-  CheckCircle2, 
-  Download,
   Database
 } from 'lucide-react';
 
@@ -62,30 +59,34 @@ export default function App() {
   };
 
   // State Updates Handlers
-  const handleUpdateUser = (updated: UserProfile) => {
-    setUser(updated);
+  const handleUpdateUser = (updated: Partial<UserProfile>) => {
+    setUser((prev) => ({ ...prev, ...updated }));
   };
 
+  const makeLog = (event: string, project: string, status: SystemLog['status'], computeCost: number): SystemLog => ({
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    project,
+    event,
+    status,
+    computeCost,
+  });
+
   const handleAddProject = (newProj: Project) => {
-    // Add to project arrays and decrement plan limits!
     setProjects((prev) => [newProj, ...prev]);
     setPlanQuota((prev) => ({
       ...prev,
       simsRemaining: Math.max(0, prev.simsRemaining - 1),
       simsUsed: prev.simsUsed + 1,
-      tokensRemaining: Math.max(0, prev.tokensRemaining - 200) // Deduct mock solver costs
+      tokensRemaining: Math.max(0, prev.tokensRemaining - 200)
     }));
 
-    // Append to system logs tracing
-    const newLog: SystemLog = {
-      id: `log-init-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      project: newProj.name,
-      event: `Aerodynamic grid build and boundary configuration standard solver ${newProj.version}`,
-      status: 'SUCCESS',
-      computeCost: 200
-    };
-    setLogs((prev) => [newLog, ...prev]);
+    setLogs((prev) => [makeLog(
+      `Aerodynamic grid build and boundary configuration standard solver ${newProj.version}`,
+      newProj.name,
+      'SUCCESS',
+      200
+    ), ...prev]);
   };
 
   const handleUpdateProject = (updatedProj: Project) => {
@@ -93,53 +94,29 @@ export default function App() {
   };
 
   const handleApplyAISuggestion = (projId: string, suggestionId: string) => {
-    setProjects((prev) => 
-      prev.map((proj) => {
-        if (proj.id !== projId) return proj;
-        
-        // Find is matching suggestion and apply
-        const suggestions = proj.suggestions.map((sug) => {
-          if (sug.id === suggestionId) {
-            return { ...sug, applied: true };
-          }
-          return sug;
-        });
+    setPlanQuota((prevQuota) => ({
+      ...prevQuota,
+      tokensRemaining: Math.max(0, prevQuota.tokensRemaining - 85)
+    }));
 
-        // Deduct compute limit and log
-        setPlanQuota((prevQuota) => ({
-          ...prevQuota,
-          tokensRemaining: Math.max(0, prevQuota.tokensRemaining - 85)
-        }));
-
-        const sName = proj.suggestions.find(s => s.id === suggestionId)?.title || 'Airfoil sweep boundary';
-        const newLog: SystemLog = {
-          id: `log-sug-${Date.now()}`,
-          timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-          project: proj.name,
-          event: `Applied AI refinement: ${sName}`,
-          status: 'CONVERGED',
-          computeCost: 85
-        };
-        setLogs((prevLogs) => [newLog, ...prevLogs]);
-
-        return { ...proj, suggestions };
-      })
-    );
+    const proj = projects.find(p => p.id === projId);
+    const sName = proj?.suggestions.find(s => s.id === suggestionId)?.title || 'Airfoil sweep boundary';
+    setLogs((prevLogs) => [makeLog(
+      `Applied AI refinement: ${sName}`,
+      proj?.name || 'Unknown',
+      'CONVERGED',
+      85
+    ), ...prevLogs]);
   };
 
   const handleUpdatePlan = (newQuota: { simsRemaining: number; simsUsed: number; tokensRemaining: number; tokensTotal: number; planName: string }) => {
     setPlanQuota(newQuota);
-    
-    // Add a log mapping package upgrade
-    const newLog: SystemLog = {
-      id: `log-plan-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      project: 'AeroFlow Cluster',
-      event: `Upgraded server resource plan to: ${newQuota.planName}`,
-      status: 'SUCCESS',
-      computeCost: 0
-    };
-    setLogs((prev) => [newLog, ...prev]);
+    setLogs((prev) => [makeLog(
+      `Upgraded server resource plan to: ${newQuota.planName}`,
+      'AeroFlow Cluster',
+      'SUCCESS',
+      0
+    ), ...prev]);
   };
 
   // Filter projects based on left navigation scope
@@ -164,7 +141,6 @@ export default function App() {
       {/* 1. Header component */}
       <Header 
         user={user} 
-        onChangeUser={handleUpdateUser}
         onNavigate={setActiveTab}
         activeTab={activeTab}
       />
@@ -226,7 +202,7 @@ export default function App() {
 
       {/* 4. Full Navier-Stokes Computations History trace logs modal dialog */}
       {showLogsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-xs p-4 animate-fade-in animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-xs p-4 animate-fade-in">
           <div className="w-full max-w-3xl rounded-lg border border-brand-border bg-white p-5 shadow-2xl flex flex-col h-[520px] justify-between animate-slide-up">
             {/* Header */}
             <div className="flex items-center justify-between border-b pb-3 mb-3">
@@ -279,7 +255,7 @@ export default function App() {
                 </div>
                 <code>[SYS] Connecting to Bern Research cloud cluster... established on Node-8</code>
                 <code>[GRID] 12,485,380 grid meshes mapped in laminar buffer stream</code>
-                <code>[SOLVE] SST K-Omega turbulence model active. Cl={projects[0]?.parameters.liftDragRatio ? (projects[0].parameters.liftDragRatio * 0.04).toFixed(3) : '0.655'} Cd={projects[0]?.parameters.liftDragRatio ? (0.655 / projects[0].parameters.liftDragRatio).toFixed(4) : '0.030'}</code>
+                <code>[SOLVE] SST K-Omega turbulence model active. Cl={(() => { const p = selectedProjectForSolver ?? projects[0]; return p?.parameters.liftDragRatio ? (p.parameters.liftDragRatio * 0.04).toFixed(3) : '0.655'; })()} Cd={(() => { const p = selectedProjectForSolver ?? projects[0]; return p?.parameters.liftDragRatio ? (0.655 / p.parameters.liftDragRatio).toFixed(4) : '0.030'; })()}</code>
                 <code>[INFO] Residual criteria met below 1.0e-6 threshold. Multi-grid cache compiled successfully.</code>
               </div>
             </div>
