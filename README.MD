@@ -81,6 +81,7 @@ For detailed information, see:
 
 - **[DEVELOPER.md](DEVELOPER.md)** — Architecture, crate design, development workflow, testing strategy, and contribution guidelines.
 - **[USER_MANUAL.md](USER_MANUAL.md)** — Installation, configuration profiles, operational procedures, security practices, and troubleshooting.
+- **[PARAMETERS.md](PARAMETERS.md)** — Full parameter reference: user (`config/*.toml`) profile keys and developer-level `jfl-core` constants and tunables.
 - **[REVISION_CONTROL.md](REVISION_CONTROL.md)** — Git Flow branching strategy, commit conventions, and collaboration workflow.
 
 ## Quick Start
