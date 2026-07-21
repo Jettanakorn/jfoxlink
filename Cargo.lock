@@ -586,6 +586,7 @@ dependencies = [
  "p256",
  "p384",
  "proptest",
+ "rand_core 0.6.4",
  "sha2",
  "zeroize",
 ]
@@ -605,6 +606,7 @@ dependencies = [
  "clap",
  "heapless",
  "jfl-core",
+ "rand 0.8.6",
  "zeroize",
 ]
 
