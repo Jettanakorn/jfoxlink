@@ -633,6 +633,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "jfl-core",
+ "rand 0.8.6",
+ "sha2",
 ]
 
 [[package]]
@@ -651,6 +653,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 name = "link_analyzer"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "jfl-core",
 ]
 
