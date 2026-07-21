@@ -108,7 +108,7 @@ impl ThreatInjector {
 mod tests {
     use super::*;
     use jfl_core::anti_jam::detector::JamDetector;
-    use jfl_core::crypto::nonce::NonceManager;
+    use jfl_core::crypto::nonce::{NonceGenerator, NonceManager};
     use jfl_core::frame::{JflError, JflFrame, JFL_CRYPTO_FLAG, JFL_GCM_TAG_LEN, JFL_HEADER_LEN, JFL_HMAC_LEN, JFL_STX};
 
     fn build_valid_crypto_frame(payload: &[u8]) -> Vec<u8> {
@@ -175,27 +175,29 @@ mod tests {
 
     #[test]
     fn replay_window_nonce_manager_test() {
-        let nonce_manager = NonceManager::new(2);
+        // TX generator produces a monotonic sequence.
+        let mut gen = NonceGenerator::new([0, 0, 0, 0]);
+        let (_, s0) = gen.next().unwrap();
+        let (_, s1) = gen.next().unwrap();
+        let (_, s2) = gen.next().unwrap();
+        assert_eq!(s1, s0 + 1);
+        assert_eq!(s2, s1 + 1);
 
-        let first = nonce_manager.next_nonce();
-        let second = nonce_manager.next_nonce();
-        let third = nonce_manager.next_nonce();
+        // RX sliding window: sequences 0,1,2 all arrive fresh and are accepted.
+        let mut rx = NonceManager::new(2);
+        assert!(rx.verify_nonce(s0).is_ok());
+        assert!(rx.verify_nonce(s1).is_ok());
+        assert!(rx.verify_nonce(s2).is_ok());
 
-        let first_val = u64::from_le_bytes(first);
-        let second_val = u64::from_le_bytes(second);
-        let third_val = u64::from_le_bytes(third);
+        // Replaying any already-seen sequence is rejected (this is the fix:
+        // the old range-only check let in-window replays through).
+        assert_eq!(rx.verify_nonce(s1).unwrap_err(), JflError::ReplayDetected);
+        assert_eq!(rx.verify_nonce(s2).unwrap_err(), JflError::ReplayDetected);
 
-        assert_eq!(second_val, first_val + 1);
-        assert_eq!(third_val, second_val + 1);
+        // A fresh, larger sequence is accepted (a real forward-moving link).
+        assert!(rx.verify_nonce(s2 + 5).is_ok());
 
-        // Current counter is 3, window is 2: value 1 is still inside the replay window.
-        assert!(nonce_manager.verify_nonce(second_val).is_ok());
-        assert!(nonce_manager.verify_nonce(third_val).is_ok());
-
-        // Value 0 falls outside the sliding window and should be rejected.
-        assert_eq!(nonce_manager.verify_nonce(first_val).unwrap_err(), JflError::ReplayDetected);
-
-        // Future values must also be rejected.
-        assert_eq!(nonce_manager.verify_nonce(third_val + 10).unwrap_err(), JflError::ReplayDetected);
+        // s0 is now well outside the 2-frame window and is rejected as too old.
+        assert_eq!(rx.verify_nonce(s0).unwrap_err(), JflError::ReplayDetected);
     }
 }

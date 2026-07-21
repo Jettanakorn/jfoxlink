@@ -603,7 +603,9 @@ name = "jfl-gcs"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "heapless",
  "jfl-core",
+ "zeroize",
 ]
 
 [[package]]

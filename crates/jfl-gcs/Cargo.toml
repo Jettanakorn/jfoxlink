@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 jfl-core = { path = "../jfl-core" }
 clap = { version = "4.4", features = ["derive"] }
+heapless = { version = "0.8", features = ["serde"] }
+zeroize = { version = "1.7", features = ["derive"] }

@@ -91,10 +91,16 @@ impl KeyStore {
             k.nonce_seed.zeroize();
         }
 
-        // Generate new keys (placeholder: integrate with jfl_core::crypto::ecdh)
-        let new_key = SecureKey::from_raw([0u8; 32], [0u8; 32], [0u8; 8]);
-        *old = Some(SecureKey::from_raw(new_key.aes_key, new_key.hmac_key, new_key.nonce_seed));
-        Ok(new_key.clone()) // Clone here for demo; prod should avoid cloning sensitive data
+        // Generate new keys (placeholder: integrate with jfl_core::crypto::ecdh).
+        // WARNING: these are all-zero placeholder keys; a real build MUST source
+        // them from ECDH/HKDF or an HSM before this path is used operationally.
+        let aes = [0u8; 32];
+        let hmac = [0u8; 32];
+        let nonce = [0u8; 8];
+        // Arrays are Copy, so we construct fresh values instead of deriving
+        // Clone on a secret-bearing type (which would ease accidental copies).
+        *old = Some(SecureKey::from_raw(aes, hmac, nonce));
+        Ok(SecureKey::from_raw(aes, hmac, nonce))
     }
 }
 
