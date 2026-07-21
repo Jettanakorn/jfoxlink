@@ -44,7 +44,7 @@ impl FrameTx {
         if payload.len() > u8::MAX as usize {
             return Err(TxError::PayloadTooLarge);
         }
-        let (nonce, _seq) = self.gen.next().map_err(|_| TxError::NonceExhausted)?;
+        let (nonce, _seq) = self.gen.next_nonce().map_err(|_| TxError::NonceExhausted)?;
 
         let mut header = [0u8; JFL_HEADER_LEN];
         header[0] = JFL_STX;
@@ -59,7 +59,8 @@ impl FrameTx {
         header[23] = 0x03; // channel flags
 
         let mut buf: HVec<u8, 512> = HVec::new();
-        buf.extend_from_slice(payload).map_err(|_| TxError::PayloadTooLarge)?;
+        buf.extend_from_slice(payload)
+            .map_err(|_| TxError::PayloadTooLarge)?;
         let tag = self
             .gcm
             .encrypt(nonce, &header, &mut buf)

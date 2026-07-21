@@ -1,8 +1,8 @@
 use heapless::Vec;
-use jfl_core::frame::{JflError, JflFrame, JFL_HEADER_LEN, JFL_HMAC_LEN};
 use jfl_core::crypto::aes_gcm::GcmEngine;
 use jfl_core::crypto::hmac::verify_hmac;
 use jfl_core::crypto::nonce::{seq_from_nonce, NonceManager};
+use jfl_core::frame::{JflError, JflFrame, JFL_HEADER_LEN, JFL_HMAC_LEN};
 use jfl_core::native::NativeMessage;
 use zeroize::Zeroize;
 
@@ -96,9 +96,13 @@ mod tests {
 
     /// Encrypts a payload and assembles a fully valid wire frame the same way a
     /// conforming transmitter would, so the decoder path is exercised end to end.
-    fn build_encrypted_frame(aes: &[u8; 32], hmac_key: &[u8; 32], plaintext: &[u8]) -> std::vec::Vec<u8> {
+    fn build_encrypted_frame(
+        aes: &[u8; 32],
+        hmac_key: &[u8; 32],
+        plaintext: &[u8],
+    ) -> std::vec::Vec<u8> {
         let mut gen = NonceGenerator::new([0xAA, 0xBB, 0xCC, 0xDD]);
-        let (nonce, _seq) = gen.next().unwrap();
+        let (nonce, _seq) = gen.next_nonce().unwrap();
 
         // 24-byte header (AAD for GCM).
         let mut header = [0u8; JFL_HEADER_LEN];
@@ -151,7 +155,10 @@ mod tests {
         let mut dec = GcsDecoder::new(&aes, &hmac_key, 64);
         assert!(dec.decode_frame(&raw).is_ok());
         // Exact same frame again: caught by the sliding-window replay check.
-        assert!(matches!(dec.decode_frame(&raw), Err(GcsDecodeError::ReplayDetected)));
+        assert!(matches!(
+            dec.decode_frame(&raw),
+            Err(GcsDecodeError::ReplayDetected)
+        ));
     }
 
     #[test]
@@ -163,7 +170,10 @@ mod tests {
 
         let mut dec = GcsDecoder::new(&aes, &hmac_key, 64);
         // HMAC covers the ciphertext, so tampering is caught before decryption.
-        assert!(matches!(dec.decode_frame(&raw), Err(GcsDecodeError::HmacMismatch)));
+        assert!(matches!(
+            dec.decode_frame(&raw),
+            Err(GcsDecodeError::HmacMismatch)
+        ));
     }
 
     #[test]
@@ -172,6 +182,9 @@ mod tests {
         let raw = build_encrypted_frame(&aes, &[9u8; 32], b"CMD-ARM");
 
         let mut dec = GcsDecoder::new(&aes, &[0u8; 32], 64); // wrong HMAC key
-        assert!(matches!(dec.decode_frame(&raw), Err(GcsDecodeError::HmacMismatch)));
+        assert!(matches!(
+            dec.decode_frame(&raw),
+            Err(GcsDecodeError::HmacMismatch)
+        ));
     }
 }

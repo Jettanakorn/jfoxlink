@@ -1,4 +1,3 @@
-#![no_std]
 //! SDR (USRP / HackRF) backend interface for defense profiles.
 //!
 //! Concrete SDR backends drive host SDKs (UHD, SoapySDR, libhackrf) and cannot

@@ -1,4 +1,3 @@
-#![no_std]
 use crate::frame::JflError;
 
 /// Wire layout of the 96-bit GCM nonce: a 4-byte per-session prefix followed
@@ -36,9 +35,12 @@ impl NonceGenerator {
     /// Returns the next 96-bit nonce and its 64-bit sequence value.
     /// Errors when the counter is exhausted, forcing a re-key rather than
     /// silently wrapping and reusing a nonce (catastrophic for AES-GCM).
-    pub fn next(&mut self) -> Result<([u8; 12], u64), JflError> {
+    pub fn next_nonce(&mut self) -> Result<([u8; 12], u64), JflError> {
         let seq = self.counter;
-        self.counter = self.counter.checked_add(1).ok_or(JflError::ReplayDetected)?;
+        self.counter = self
+            .counter
+            .checked_add(1)
+            .ok_or(JflError::ReplayDetected)?;
         let mut nonce = [0u8; 12];
         nonce[..NONCE_PREFIX_LEN].copy_from_slice(&self.prefix);
         nonce[NONCE_SEQ_OFFSET..NONCE_SEQ_OFFSET + 8].copy_from_slice(&seq.to_le_bytes());
@@ -139,8 +141,8 @@ mod tests {
     #[test]
     fn generator_is_monotonic_and_layout_is_stable() {
         let mut tx = NonceGenerator::new([1, 2, 3, 4]);
-        let (n0, s0) = tx.next().unwrap();
-        let (n1, s1) = tx.next().unwrap();
+        let (n0, s0) = tx.next_nonce().unwrap();
+        let (n1, s1) = tx.next_nonce().unwrap();
         assert_eq!(s1, s0 + 1);
         assert_eq!(&n0[..4], &[1, 2, 3, 4]);
         assert_eq!(seq_from_nonce(&n0), s0);

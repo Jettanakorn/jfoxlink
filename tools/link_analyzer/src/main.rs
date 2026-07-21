@@ -10,7 +10,11 @@ use std::process::ExitCode;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "link_analyzer", about = "JFOXLink RF link-quality analyzer", version)]
+#[command(
+    name = "link_analyzer",
+    about = "JFOXLink RF link-quality analyzer",
+    version
+)]
 struct Cli {
     /// Read whitespace-separated RSSI dBm samples from stdin instead of the demo series.
     #[arg(long)]
@@ -44,7 +48,9 @@ fn main() -> ExitCode {
 
 fn read_stdin_samples() -> Result<Vec<i32>, String> {
     let mut s = String::new();
-    std::io::stdin().read_to_string(&mut s).map_err(|e| e.to_string())?;
+    std::io::stdin()
+        .read_to_string(&mut s)
+        .map_err(|e| e.to_string())?;
     s.split_whitespace()
         .map(|t| t.parse::<i32>().map_err(|e| e.to_string()))
         .collect()

@@ -49,7 +49,9 @@ impl Profile {
             if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
                 continue;
             }
-            let Some((key, val)) = line.split_once('=') else { continue };
+            let Some((key, val)) = line.split_once('=') else {
+                continue;
+            };
             let key = key.trim();
             let val = val.trim().trim_matches('"');
             match key {

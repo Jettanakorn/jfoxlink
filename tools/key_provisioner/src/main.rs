@@ -12,7 +12,11 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
-#[command(name = "key_provisioner", about = "JFOXLink ECDH key provisioner", version)]
+#[command(
+    name = "key_provisioner",
+    about = "JFOXLink ECDH key provisioner",
+    version
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -65,8 +69,16 @@ fn run(cli: Cli) -> Result<(), String> {
             let keys_a = EcdhSession::derive_session_keys(&sec_a, &pub_g, salt, info.as_bytes())
                 .map_err(|e| format!("{e:?}"))?;
 
-            println!("GCS      aes fp {}  hmac fp {}", fp(&keys_g.aes_key), fp(&keys_g.hmac_key));
-            println!("Aircraft aes fp {}  hmac fp {}", fp(&keys_a.aes_key), fp(&keys_a.hmac_key));
+            println!(
+                "GCS      aes fp {}  hmac fp {}",
+                fp(&keys_g.aes_key),
+                fp(&keys_g.hmac_key)
+            );
+            println!(
+                "Aircraft aes fp {}  hmac fp {}",
+                fp(&keys_a.aes_key),
+                fp(&keys_a.hmac_key)
+            );
 
             if keys_g.aes_key == keys_a.aes_key && keys_g.hmac_key == keys_a.hmac_key {
                 println!("[ok] both peers derived identical session keys");

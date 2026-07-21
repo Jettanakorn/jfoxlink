@@ -1,4 +1,3 @@
-#![no_std]
 //! Radio hardware-abstraction traits and the shared error type.
 //!
 //! Drivers implement the subset of these that their hardware supports. Errors

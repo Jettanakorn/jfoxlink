@@ -1,16 +1,21 @@
-#![no_std]
-use super::manager::{ChannelId, ChannelState};
+use super::manager::ChannelId;
 
 /// Hysteresis-based failover state machine.
 /// INVARIANT: Prevents channel flapping. Minimum 2 hop periods before switching.
 pub struct FailoverFSM {
     pub active: ChannelId,
     pub timer: u16,
-    pub min_hold_ms: u16
+    pub min_hold_ms: u16,
 }
 
 impl FailoverFSM {
-    pub fn new(hold_ms: u16) -> Self { Self { active: ChannelId::A, timer: 0, min_hold_ms: hold_ms } }
+    pub fn new(hold_ms: u16) -> Self {
+        Self {
+            active: ChannelId::A,
+            timer: 0,
+            min_hold_ms: hold_ms,
+        }
+    }
     pub fn transition(&mut self, target: ChannelId, elapsed_ms: u16) -> ChannelId {
         // Saturating: an unchecked `+=` overflows u16 once the accumulated
         // hold time exceeds ~65s, which (in release) wraps to a small value and

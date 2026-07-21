@@ -1,4 +1,3 @@
-#![no_std]
 //! RFD900x / SiK 900 MHz FHSS radio driver.
 //!
 //! The RFD900x presents a transparent serial (UART) interface. This driver adds
@@ -20,7 +19,11 @@ fn crc16(data: &[u8]) -> u16 {
     for &b in data {
         crc ^= (b as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -35,7 +38,12 @@ pub struct Rfd900<S: SerialLine> {
 
 impl<S: SerialLine> Rfd900<S> {
     pub fn new(serial: S) -> Self {
-        Self { serial, channel: 0, last_rssi_dbm: -128, fault: false }
+        Self {
+            serial,
+            channel: 0,
+            last_rssi_dbm: -128,
+            fault: false,
+        }
     }
 
     /// Consume the driver and return the underlying transport.
@@ -195,7 +203,11 @@ mod tests {
     }
     impl Loopback {
         fn new() -> Self {
-            Self { buf: [0; 512], w: 0, r: 0 }
+            Self {
+                buf: [0; 512],
+                w: 0,
+                r: 0,
+            }
         }
     }
     impl SerialLine for Loopback {
@@ -256,7 +268,10 @@ mod tests {
         assert_eq!(radio.set_power_dbm(0), Err(HalError::InvalidParam));
         assert_eq!(radio.set_power_dbm(31), Err(HalError::InvalidParam));
         assert!(radio.set_power_dbm(20).is_ok());
-        assert_eq!(radio.set_frequency_khz(800_000), Err(HalError::InvalidParam));
+        assert_eq!(
+            radio.set_frequency_khz(800_000),
+            Err(HalError::InvalidParam)
+        );
         assert!(radio.set_frequency_khz(915_000).is_ok());
     }
 

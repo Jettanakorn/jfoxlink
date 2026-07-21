@@ -1,11 +1,14 @@
-#![no_std]
 /// 100-channel pseudo-random hop sequence generator.
 /// INVARIANT: Synchronized via GPS time or encrypted beacon. Never repeats within window.
 ///
 /// SECURITY: This LFSR is deterministic and predictable; it is NOT
 /// cryptographically secure. Defense builds must drive the hop schedule from a
 /// CSPRNG / keyed sequence rather than relying on this generator directly.
-pub struct FhssEngine { seed: u32, channel_count: u32, index: u32 }
+pub struct FhssEngine {
+    seed: u32,
+    channel_count: u32,
+    index: u32,
+}
 
 /// Fallback seed used whenever the LFSR state would otherwise be zero.
 /// An all-zero LFSR state is a fixed point that locks the hop sequence to a
@@ -46,7 +49,10 @@ mod tests {
         }
         let distinct = seen.iter().filter(|&&s| s).count();
         // A locked LFSR would visit exactly one channel; require broad coverage.
-        assert!(distinct > 50, "hop sequence collapsed: only {distinct} channels");
+        assert!(
+            distinct > 50,
+            "hop sequence collapsed: only {distinct} channels"
+        );
     }
 
     #[test]

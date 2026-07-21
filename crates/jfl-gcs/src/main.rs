@@ -68,7 +68,11 @@ fn run(cli: Cli) -> Result<(), String> {
             print_profile(&p);
             selftest(&p)
         }
-        Cmd::Decode { file, aes_hex, hmac_hex } => {
+        Cmd::Decode {
+            file,
+            aes_hex,
+            hmac_hex,
+        } => {
             let p = Profile::load(&cli.config).map_err(|e| e.to_string())?;
             let aes = parse_key32(&aes_hex)?;
             let hmac = parse_key32(&hmac_hex)?;
@@ -76,8 +80,15 @@ fn run(cli: Cli) -> Result<(), String> {
             let mut dec = GcsDecoder::new(&aes, &hmac, p.replay_window);
             match dec.decode_frame(&raw) {
                 Ok(msg) => {
-                    println!("Decoded frame: sysid={} compid={} msgid={:02x?}", msg.sysid, msg.compid, msg.msgid);
-                    println!("Payload ({} bytes): {}", msg.payload.len(), to_hex(&msg.payload));
+                    println!(
+                        "Decoded frame: sysid={} compid={} msgid={:02x?}",
+                        msg.sysid, msg.compid, msg.msgid
+                    );
+                    println!(
+                        "Payload ({} bytes): {}",
+                        msg.payload.len(),
+                        to_hex(&msg.payload)
+                    );
                     Ok(())
                 }
                 Err(e) => Err(format!("decode failed: {e:?}")),
@@ -95,19 +106,29 @@ fn selftest(p: &Profile) -> Result<(), String> {
     let uav = KeyStore::new(std::env::temp_dir().join("jfl-gcs-selftest-b.bin"));
     let pk_gcs = gcs.begin_handshake().map_err(|e| format!("{e:?}"))?;
     let pk_uav = uav.begin_handshake().map_err(|e| format!("{e:?}"))?;
-    gcs.complete_handshake(&pk_uav, b"jfl-salt", b"jfl-session").map_err(|e| format!("{e:?}"))?;
-    uav.complete_handshake(&pk_gcs, b"jfl-salt", b"jfl-session").map_err(|e| format!("{e:?}"))?;
+    gcs.complete_handshake(&pk_uav, b"jfl-salt", b"jfl-session")
+        .map_err(|e| format!("{e:?}"))?;
+    uav.complete_handshake(&pk_gcs, b"jfl-salt", b"jfl-session")
+        .map_err(|e| format!("{e:?}"))?;
     let keys = gcs.load_keys().map_err(|e| format!("{e:?}"))?;
-    println!("[ok] ECDH session established (aes fp {}, hmac fp {})", fp(&keys.aes_key), fp(&keys.hmac_key));
+    println!(
+        "[ok] ECDH session established (aes fp {}, hmac fp {})",
+        fp(&keys.aes_key),
+        fp(&keys.hmac_key)
+    );
 
     // UAV side encrypts a telemetry frame; GCS side decodes it.
     let mut tx = FrameTx::new(&keys.aes_key, &keys.hmac_key, keys.nonce_prefix);
     let payload = b"HEARTBEAT:alt=120,batt=87%";
-    let frame = tx.encode(0x01, 0x01, 0x01, [0x00, 0x00, 0x00], payload).map_err(|e| format!("{e:?}"))?;
+    let frame = tx
+        .encode(0x01, 0x01, 0x01, [0x00, 0x00, 0x00], payload)
+        .map_err(|e| format!("{e:?}"))?;
     println!("[ok] Encrypted frame built: {} bytes", frame.len());
 
     let mut dec = GcsDecoder::new(&keys.aes_key, &keys.hmac_key, p.replay_window);
-    let msg = dec.decode_frame(&frame).map_err(|e| format!("decode: {e:?}"))?;
+    let msg = dec
+        .decode_frame(&frame)
+        .map_err(|e| format!("decode: {e:?}"))?;
     let text = core::str::from_utf8(&msg.payload).unwrap_or("<binary>");
     println!("[ok] Decoded payload: \"{text}\"");
     if msg.payload.as_slice() != payload {

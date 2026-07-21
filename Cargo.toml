@@ -6,8 +6,11 @@ members = [
     "crates/jfl-sim",
     "tools/key_provisioner",
     "tools/link_analyzer",
-    "tools/fuzz"
 ]
+# The fuzz crate is a libFuzzer target (#![no_main] + sanitizer runtime); it is
+# built only via `cargo fuzz` on nightly, so it is excluded from the normal
+# workspace build/test.
+exclude = ["tools/fuzz"]
 resolver = "2"
 
 [profile.release]

@@ -1,4 +1,3 @@
-#![no_std]
 //! Ephemeral ECDH key agreement with HKDF session-key derivation.
 //!
 //! Curve is profile-selected: P-384 (NSA Suite B) under `defense-full`,
@@ -6,20 +5,20 @@
 //! hardware RNG via the HAL on embedded targets, or `OsRng` on hosts — so this
 //! module has no ambient entropy source and stays `no_std`.
 
+use crate::crypto::hkdf::HkdfEngine;
+use crate::frame::JflError;
 use heapless::Vec;
 use rand_core::CryptoRngCore;
 use zeroize::ZeroizeOnDrop;
-use crate::crypto::hkdf::HkdfEngine;
-use crate::frame::JflError;
 
-#[cfg(feature = "defense-full")]
-use p384::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
-#[cfg(feature = "defense-full")]
-pub use p384::ecdh::EphemeralSecret;
-#[cfg(not(feature = "defense-full"))]
-use p256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
 #[cfg(not(feature = "defense-full"))]
 pub use p256::ecdh::EphemeralSecret;
+#[cfg(not(feature = "defense-full"))]
+use p256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
+#[cfg(feature = "defense-full")]
+pub use p384::ecdh::EphemeralSecret;
+#[cfg(feature = "defense-full")]
+use p384::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
 
 /// Upper bound on a compressed SEC1 public key: 33 bytes (P-256) or 49 (P-384).
 pub const MAX_PUBKEY_LEN: usize = 49;
@@ -59,8 +58,8 @@ impl EcdhSession {
         salt: &[u8],
         info: &[u8],
     ) -> Result<SessionKeys, JflError> {
-        let peer = PublicKey::from_sec1_bytes(peer_pubkey)
-            .map_err(|_| JflError::UnsupportedVersion)?;
+        let peer =
+            PublicKey::from_sec1_bytes(peer_pubkey).map_err(|_| JflError::UnsupportedVersion)?;
         let shared = my_secret.diffie_hellman(&peer);
         let ikm = shared.raw_secret_bytes();
 

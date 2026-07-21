@@ -69,7 +69,11 @@ impl SecureKey {
         aes_key.copy_from_slice(&b[0..32]);
         hmac_key.copy_from_slice(&b[32..64]);
         nonce_prefix.copy_from_slice(&b[64..68]);
-        Ok(Self { aes_key, hmac_key, nonce_prefix })
+        Ok(Self {
+            aes_key,
+            hmac_key,
+            nonce_prefix,
+        })
     }
 }
 
@@ -95,7 +99,10 @@ impl KeyStore {
     pub fn begin_handshake(&self) -> Result<HVec<u8, MAX_PUBKEY_LEN>, KeyStoreError> {
         let (secret, public) = EcdhSession::generate_ephemeral(&mut OsRng)
             .map_err(|_| KeyStoreError::KeyAgreementFailed)?;
-        *self.pending.lock().map_err(|_| KeyStoreError::HandshakeIncomplete)? = Some(secret);
+        *self
+            .pending
+            .lock()
+            .map_err(|_| KeyStoreError::HandshakeIncomplete)? = Some(secret);
         Ok(public)
     }
 
@@ -130,7 +137,10 @@ impl KeyStore {
     }
 
     fn install(&self, key: SecureKey) -> Result<(), KeyStoreError> {
-        let mut slot = self.session.lock().map_err(|_| KeyStoreError::KeyNotLoaded)?;
+        let mut slot = self
+            .session
+            .lock()
+            .map_err(|_| KeyStoreError::KeyNotLoaded)?;
         if let Some(ref mut old) = *slot {
             old.aes_key.zeroize();
             old.hmac_key.zeroize();
@@ -143,7 +153,10 @@ impl KeyStore {
     /// Returns a copy of the active session keys for building a decoder.
     /// Fail-closed: errors if no session has been established.
     pub fn load_keys(&self) -> Result<SecureKey, KeyStoreError> {
-        let slot = self.session.lock().map_err(|_| KeyStoreError::KeyNotLoaded)?;
+        let slot = self
+            .session
+            .lock()
+            .map_err(|_| KeyStoreError::KeyNotLoaded)?;
         match *slot {
             Some(ref k) => Ok(SecureKey {
                 aes_key: k.aes_key,
@@ -209,7 +222,8 @@ impl KeyStore {
         tag.copy_from_slice(&raw[12 + KEY_MATERIAL_LEN..]);
 
         let mut buf: HVec<u8, 512> = HVec::new();
-        buf.extend_from_slice(ct).map_err(|_| KeyStoreError::Corrupt)?;
+        buf.extend_from_slice(ct)
+            .map_err(|_| KeyStoreError::Corrupt)?;
 
         let gcm = GcmEngine::new(kek);
         gcm.decrypt(nonce, KEYSTORE_AAD, &mut buf, &tag)
@@ -252,8 +266,10 @@ mod tests {
         let pub_a = a.begin_handshake().unwrap();
         let pub_b = b.begin_handshake().unwrap();
 
-        a.complete_handshake(&pub_b, b"salt", b"jfl-session").unwrap();
-        b.complete_handshake(&pub_a, b"salt", b"jfl-session").unwrap();
+        a.complete_handshake(&pub_b, b"salt", b"jfl-session")
+            .unwrap();
+        b.complete_handshake(&pub_a, b"salt", b"jfl-session")
+            .unwrap();
 
         let ka = a.load_keys().unwrap();
         let kb = b.load_keys().unwrap();

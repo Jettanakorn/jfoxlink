@@ -75,7 +75,10 @@ fn run_scenario(cli: &Cli) -> Stats {
 
     let mut manager = DualChannelManager::new();
     let mut injector = ThreatInjector::new(cli.seed);
-    let mut detector = JamDetector { threshold_dbm: cli.jam_threshold, spectral_energy: [i16::MIN; 64] };
+    let mut detector = JamDetector {
+        threshold_dbm: cli.jam_threshold,
+        spectral_energy: [i16::MIN; 64],
+    };
 
     // Inject jamming once at the start of the run. The detector's energy model
     // uses a positive power scale, so a jammer is represented by a positive
@@ -136,13 +139,33 @@ fn run_scenario(cli: &Cli) -> Stats {
 }
 
 fn report(cli: &Cli, s: &Stats) {
-    let pct = |n: usize| if s.sent > 0 { 100.0 * n as f32 / s.sent as f32 } else { 0.0 };
+    let pct = |n: usize| {
+        if s.sent > 0 {
+            100.0 * n as f32 / s.sent as f32
+        } else {
+            0.0
+        }
+    };
     println!("== JFOXLink simulation: {} ==", cli.scenario);
-    println!("seed={}  frames={}  distance={}m  jam={}", cli.seed, cli.frames, cli.distance_m, jam_label(cli.jam));
+    println!(
+        "seed={}  frames={}  distance={}m  jam={}",
+        cli.seed,
+        cli.frames,
+        cli.distance_m,
+        jam_label(cli.jam)
+    );
     println!("  sent           : {}", s.sent);
-    println!("  delivered      : {} ({:.1}%)", s.delivered, pct(s.delivered));
+    println!(
+        "  delivered      : {} ({:.1}%)",
+        s.delivered,
+        pct(s.delivered)
+    );
     println!("  dropped        : {} ({:.1}%)", s.dropped, pct(s.dropped));
-    println!("  corrupted      : {} ({:.1}%)", s.corrupted, pct(s.corrupted));
+    println!(
+        "  corrupted      : {} ({:.1}%)",
+        s.corrupted,
+        pct(s.corrupted)
+    );
     println!("  failovers      : {}", s.failovers);
     println!("  jam detections : {}", s.jam_detections);
 }

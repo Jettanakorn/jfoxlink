@@ -1,4 +1,3 @@
-#![no_std]
 //! Semtech SX1280 2.4 GHz transceiver driver (SPI).
 //!
 //! Implements the SX1280 command set over an `embedded-hal` 1.0 [`SpiDevice`],
@@ -10,7 +9,7 @@
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
 
-use crate::traits::{FrequencyHop, HalError, HwStatus, PowerControl, RadioTx, RadioRx};
+use crate::traits::{FrequencyHop, HalError, HwStatus, PowerControl, RadioRx, RadioTx};
 
 // SX1280 command opcodes (datasheet §11).
 const CMD_SET_STANDBY: u8 = 0x80;
@@ -46,7 +45,12 @@ where
     RST: OutputPin,
 {
     pub fn new(spi: SPI, reset: RST) -> Self {
-        Self { spi, reset, last_rssi_dbm: -128, fault: false }
+        Self {
+            spi,
+            reset,
+            last_rssi_dbm: -128,
+            fault: false,
+        }
     }
 
     fn cmd(&mut self, bytes: &[u8]) -> Result<(), HalError> {
@@ -204,7 +208,11 @@ mod tests {
     }
     impl MockSpi {
         fn new() -> Self {
-            Self { written: [0; 512], w: 0, response: 0 }
+            Self {
+                written: [0; 512],
+                w: 0,
+                response: 0,
+            }
         }
         fn record(&mut self, data: &[u8]) {
             for &b in data {

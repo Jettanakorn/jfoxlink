@@ -1,4 +1,3 @@
-#![no_std]
 use core::result::Result;
 use heapless::Vec;
 
@@ -46,31 +45,51 @@ impl<'a> JflFrame<'a> {
         if raw.len() < JFL_HEADER_LEN + JFL_GCM_TAG_LEN + JFL_HMAC_LEN {
             return Err(JflError::LengthMismatch);
         }
-        if raw[0] != JFL_STX { return Err(JflError::InvalidStx); }
+        if raw[0] != JFL_STX {
+            return Err(JflError::InvalidStx);
+        }
 
         let payload_len = raw[1] as usize;
         let expected = JFL_HEADER_LEN + payload_len + JFL_GCM_TAG_LEN + JFL_HMAC_LEN;
-        if raw.len() != expected { return Err(JflError::LengthMismatch); }
-        
-        /// SECURITY: Verify crypto active flag before processing
-        if (raw[2] & 0x02) == 0 { return Err(JflError::UnsupportedVersion); }
+        if raw.len() != expected {
+            return Err(JflError::LengthMismatch);
+        }
+
+        // SECURITY: Verify crypto active flag before processing
+        if (raw[2] & 0x02) == 0 {
+            return Err(JflError::UnsupportedVersion);
+        }
 
         Ok(JflFrame {
-            stx: raw[0], len: raw[1], incompat_flags: raw[2], compat_flags: raw[3],
-            seq: raw[4], sysid: raw[5], compid: raw[6],
-            msgid: [raw[7], raw[8], raw[9]], jfl_version: raw[10],
-            nonce: raw[11..23].try_into().map_err(|_| JflError::LengthMismatch)?,
+            stx: raw[0],
+            len: raw[1],
+            incompat_flags: raw[2],
+            compat_flags: raw[3],
+            seq: raw[4],
+            sysid: raw[5],
+            compid: raw[6],
+            msgid: [raw[7], raw[8], raw[9]],
+            jfl_version: raw[10],
+            nonce: raw[11..23]
+                .try_into()
+                .map_err(|_| JflError::LengthMismatch)?,
             channel_flags: raw[23],
             encrypted_payload: &raw[JFL_HEADER_LEN..JFL_HEADER_LEN + payload_len],
-            gcm_tag: raw[JFL_HEADER_LEN + payload_len..][..JFL_GCM_TAG_LEN].try_into().map_err(|_| JflError::LengthMismatch)?,
-            hmac: raw[raw.len() - JFL_HMAC_LEN..].try_into().map_err(|_| JflError::LengthMismatch)?,
+            gcm_tag: raw[JFL_HEADER_LEN + payload_len..][..JFL_GCM_TAG_LEN]
+                .try_into()
+                .map_err(|_| JflError::LengthMismatch)?,
+            hmac: raw[raw.len() - JFL_HMAC_LEN..]
+                .try_into()
+                .map_err(|_| JflError::LengthMismatch)?,
         })
     }
 
     /// Serializes frame to mutable buffer.
     /// PANIC: never
     pub fn to_bytes<'b>(&self, buf: &'b mut Vec<u8, 512>) -> Result<&'b [u8], JflError> {
-        if buf.capacity() < JFL_HEADER_LEN + self.encrypted_payload.len() + JFL_GCM_TAG_LEN + JFL_HMAC_LEN {
+        if buf.capacity()
+            < JFL_HEADER_LEN + self.encrypted_payload.len() + JFL_GCM_TAG_LEN + JFL_HMAC_LEN
+        {
             return Err(JflError::BufferOverflow);
         }
         buf.clear();
@@ -80,18 +99,28 @@ impl<'a> JflFrame<'a> {
         // (push/extend_from_slice have different Err types, so map each inline.)
         buf.push(self.stx).map_err(|_| JflError::BufferOverflow)?;
         buf.push(self.len).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(self.incompat_flags).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(self.compat_flags).map_err(|_| JflError::BufferOverflow)?;
+        buf.push(self.incompat_flags)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.push(self.compat_flags)
+            .map_err(|_| JflError::BufferOverflow)?;
         buf.push(self.seq).map_err(|_| JflError::BufferOverflow)?;
         buf.push(self.sysid).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(self.compid).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(&self.msgid).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(self.jfl_version).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(&self.nonce).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(self.channel_flags).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(self.encrypted_payload).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(self.gcm_tag.as_slice()).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(self.hmac.as_slice()).map_err(|_| JflError::BufferOverflow)?;
+        buf.push(self.compid)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(&self.msgid)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.push(self.jfl_version)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(&self.nonce)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.push(self.channel_flags)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(self.encrypted_payload)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(self.gcm_tag.as_slice())
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(self.hmac.as_slice())
+            .map_err(|_| JflError::BufferOverflow)?;
         Ok(buf.as_slice())
     }
 }
@@ -107,8 +136,12 @@ mod tests {
         v.push(payload.len() as u8).unwrap();
         v.push(0x02).unwrap(); // incompat: crypto active
         v.push(0x00).unwrap(); // compat
-        for _ in 0..7 { v.push(0).unwrap(); } // seq,sysid,compid,msgid[3],jfl_version
-        for _ in 0..12 { v.push(0).unwrap(); } // nonce
+        for _ in 0..7 {
+            v.push(0).unwrap();
+        } // seq,sysid,compid,msgid[3],jfl_version
+        for _ in 0..12 {
+            v.push(0).unwrap();
+        } // nonce
         v.push(0).unwrap(); // channel_flags  -> header is 24 bytes total
         v.extend_from_slice(payload).unwrap();
         v.extend_from_slice(&[0u8; JFL_GCM_TAG_LEN]).unwrap();
@@ -129,21 +162,30 @@ mod tests {
     fn rejects_crypto_inactive_frame() {
         let mut raw = make_frame(&[]);
         raw[2] = 0x00; // clear crypto-active bit
-        assert!(matches!(JflFrame::from_bytes(&raw), Err(JflError::UnsupportedVersion)));
+        assert!(matches!(
+            JflFrame::from_bytes(&raw),
+            Err(JflError::UnsupportedVersion)
+        ));
     }
 
     #[test]
     fn rejects_bad_stx() {
         let mut raw = make_frame(&[]);
         raw[0] = 0x00;
-        assert!(matches!(JflFrame::from_bytes(&raw), Err(JflError::InvalidStx)));
+        assert!(matches!(
+            JflFrame::from_bytes(&raw),
+            Err(JflError::InvalidStx)
+        ));
     }
 
     #[test]
     fn rejects_length_mismatch() {
         let mut raw = make_frame(&[9, 9, 9]);
         raw[1] = 100; // claim 100-byte payload the buffer doesn't have
-        assert!(matches!(JflFrame::from_bytes(&raw), Err(JflError::LengthMismatch)));
+        assert!(matches!(
+            JflFrame::from_bytes(&raw),
+            Err(JflError::LengthMismatch)
+        ));
     }
 
     /// The crate's foremost invariant: `from_bytes` must never panic, for ANY input.
@@ -171,5 +213,51 @@ mod tests {
         let mut out: Vec<u8, 512> = Vec::new();
         let bytes = f.to_bytes(&mut out).unwrap();
         assert_eq!(bytes, &raw[..]);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// The never-panic invariant, fuzzed: any byte string returns Ok/Err.
+        #[test]
+        fn from_bytes_never_panics(data in proptest::collection::vec(any::<u8>(), 0..600)) {
+            let _ = JflFrame::from_bytes(&data);
+        }
+
+        /// Any well-formed frame parses and exposes its fields faithfully.
+        #[test]
+        fn well_formed_frames_parse_faithfully(
+            payload in proptest::collection::vec(any::<u8>(), 0..=255usize),
+            seq in any::<u8>(),
+            sysid in any::<u8>(),
+            compid in any::<u8>(),
+        ) {
+            let mut raw: Vec<u8, 512> = Vec::new();
+            raw.push(JFL_STX).unwrap();
+            raw.push(payload.len() as u8).unwrap();
+            raw.push(0x02).unwrap(); // crypto active
+            raw.push(0x00).unwrap();
+            raw.push(seq).unwrap();
+            raw.push(sysid).unwrap();
+            raw.push(compid).unwrap();
+            raw.extend_from_slice(&[1, 0, 0]).unwrap(); // msgid
+            raw.push(0x01).unwrap(); // version
+            raw.extend_from_slice(&[0xAB; 12]).unwrap(); // nonce
+            raw.push(0x03).unwrap(); // channel flags
+            raw.extend_from_slice(&payload).unwrap();
+            raw.extend_from_slice(&[0u8; JFL_GCM_TAG_LEN]).unwrap();
+            raw.extend_from_slice(&[0u8; JFL_HMAC_LEN]).unwrap();
+
+            let f = JflFrame::from_bytes(&raw).expect("well-formed frame must parse");
+            prop_assert_eq!(f.seq, seq);
+            prop_assert_eq!(f.sysid, sysid);
+            prop_assert_eq!(f.compid, compid);
+            prop_assert_eq!(f.encrypted_payload.len(), payload.len());
+            prop_assert_eq!(f.encrypted_payload, &payload[..]);
+        }
     }
 }
