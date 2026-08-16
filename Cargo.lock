@@ -98,9 +98,6 @@ name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
 
 [[package]]
 name = "autocfg"
@@ -313,17 +310,6 @@ checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
  "zeroize",
-]
-
-[[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -586,16 +572,9 @@ dependencies = [
  "p256",
  "p384",
  "proptest",
+ "rand_core 0.6.4",
  "sha2",
  "zeroize",
-]
-
-[[package]]
-name = "jfl-fuzz"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "jfl-core",
 ]
 
 [[package]]
@@ -603,7 +582,10 @@ name = "jfl-gcs"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "heapless",
  "jfl-core",
+ "rand 0.8.6",
+ "zeroize",
 ]
 
 [[package]]
@@ -629,6 +611,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "jfl-core",
+ "rand 0.8.6",
+ "sha2",
 ]
 
 [[package]]
@@ -647,6 +631,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 name = "link_analyzer"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "jfl-core",
 ]
 

@@ -1,0 +1,391 @@
+<title>JFOXLink Architecture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --ground: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --ink: #111820;
+    --ink-2: #46545f;
+    --ink-3: #6b7a85;
+    --border: #d6dde3;
+    --border-strong: #b9c4cc;
+    --accent: #0c7c89;        /* signal cyan — security / data path */
+    --accent-soft: #e2f1f2;
+    --accent-ink: #075058;
+    --amber: #9c5a0c;         /* anti-jam semantic */
+    --amber-soft: #f6ecdc;
+    --blue: #2d5aa8;          /* redundancy semantic */
+    --blue-soft: #e7edf7;
+    --rf: #6b7a85;
+    --shadow: 0 1px 2px rgba(16,24,32,.06), 0 8px 24px rgba(16,24,32,.05);
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0c1116;
+      --surface: #131b22;
+      --surface-2: #0f171d;
+      --ink: #e6edf2;
+      --ink-2: #a3b1bc;
+      --ink-3: #74858f;
+      --border: #232f38;
+      --border-strong: #33424d;
+      --accent: #3cd6e0;
+      --accent-soft: #10333a;
+      --accent-ink: #8fe8ee;
+      --amber: #f0ae4b;
+      --amber-soft: #322616;
+      --blue: #7aa2e0;
+      --blue-soft: #16243b;
+      --rf: #8497a2;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0c1116;
+    --surface: #131b22;
+    --surface-2: #0f171d;
+    --ink: #e6edf2;
+    --ink-2: #a3b1bc;
+    --ink-3: #74858f;
+    --border: #232f38;
+    --border-strong: #33424d;
+    --accent: #3cd6e0;
+    --accent-soft: #10333a;
+    --accent-ink: #8fe8ee;
+    --amber: #f0ae4b;
+    --amber-soft: #322616;
+    --blue: #7aa2e0;
+    --blue-soft: #16243b;
+    --rf: #8497a2;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: clamp(24px, 5vw, 64px) clamp(16px, 4vw, 40px) 80px; }
+
+  /* ---- header ---- */
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent-ink); margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.05; letter-spacing: -.02em;
+    margin: 0 0 14px; text-wrap: balance; font-weight: 680;
+  }
+  .lede { font-size: clamp(16px, 2vw, 18px); color: var(--ink-2); max-width: 60ch; margin: 0; }
+  .toggle {
+    flex: none; font-family: var(--mono); font-size: 12px; letter-spacing: .04em;
+    background: var(--surface); color: var(--ink-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; box-shadow: var(--shadow);
+  }
+  .toggle:hover { border-color: var(--border-strong); color: var(--ink); }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .rule { height: 1px; background: var(--border); border: 0; margin: 32px 0; }
+
+  h2 {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; margin: 0 0 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  h2::before { content: ""; width: 22px; height: 2px; background: var(--accent); flex: none; }
+
+  /* ---- stack ---- */
+  .stack { display: flex; flex-direction: column; align-items: stretch; }
+  .layer {
+    position: relative; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px 16px 22px; box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .layer::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stripe, var(--rf));
+  }
+  .layer .lab {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--stripe, var(--ink-3)); margin: 0 0 4px; font-weight: 600;
+  }
+  .layer .name { font-size: 17px; font-weight: 650; margin: 0 0 3px; letter-spacing: -.01em; }
+  .layer .mods { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); margin: 0; }
+  .layer .crate {
+    position: absolute; top: 14px; right: 16px; font-family: var(--mono); font-size: 10.5px;
+    letter-spacing: .05em; color: var(--ink-3); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+  }
+
+  .l-app    { --stripe: var(--ink-3); }
+  .l-payload{ --stripe: var(--rf); }
+  .l-sec    { --stripe: var(--accent); }
+  .l-redun  { --stripe: var(--blue); }
+
+  /* security envelope highlighted group */
+  .envelope {
+    border-color: var(--accent); background:
+      linear-gradient(0deg, var(--surface), var(--surface));
+    padding-bottom: 8px;
+  }
+  .envelope .sublist { list-style: none; margin: 12px 0 6px; padding: 0; display: grid; gap: 7px; }
+  .envelope .sublist li {
+    display: grid; grid-template-columns: 128px 1fr; gap: 12px; align-items: baseline;
+    background: var(--accent-soft); border-radius: 8px; padding: 8px 12px;
+    font-size: 13.5px;
+  }
+  .envelope .sublist .k {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 600;
+  }
+  .envelope .sublist .v { color: var(--ink); }
+  .envelope .sublist code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+
+  /* connector */
+  .conn { display: flex; flex-direction: column; align-items: center; padding: 6px 0; }
+  .conn .line { width: 2px; height: 20px; background: linear-gradient(var(--border-strong), var(--accent)); border-radius: 2px; position: relative; overflow: hidden; }
+  .conn .line::after {
+    content: ""; position: absolute; left: 0; right: 0; top: -60%; height: 60%;
+    background: linear-gradient(var(--accent), transparent);
+    animation: flow 2.4s linear infinite;
+  }
+  .conn .arrow { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--accent); margin-top: 1px; }
+  .conn .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: .04em;
+    margin-bottom: 4px; background: var(--ground); padding: 0 8px;
+  }
+  @keyframes flow { from { top: -60%; } to { top: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .conn .line::after { animation: none; } }
+
+  /* fan-out to channels */
+  .split { display: flex; flex-direction: column; align-items: center; padding-top: 6px; }
+  .split .stem { width: 2px; height: 16px; background: var(--border-strong); }
+  .split .bar { width: 62%; height: 2px; background: var(--border-strong); }
+  .split .legs { width: 62%; display: flex; justify-content: space-between; }
+  .split .legs span { width: 2px; height: 16px; background: var(--border-strong); }
+  .split .legs .arrow { width: 0; height: 2px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--border-strong); background: none; }
+
+  .channels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chan {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .chan h3 {
+    margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 11px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
+  }
+  .chan.a h3 { background: var(--blue-soft); color: var(--blue); }
+  .chan.b h3 { background: var(--amber-soft); color: var(--amber); }
+  .chan .row { padding: 11px 16px; border-bottom: 1px dashed var(--border); }
+  .chan .row:last-child { border-bottom: 0; }
+  .chan .row .rk { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); display: block; margin-bottom: 2px; }
+  .chan .row .rv { font-size: 14px; color: var(--ink); }
+  .chan .row .rv code { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+  .rf-line {
+    text-align: center; font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+    color: var(--rf); padding: 9px; background: var(--surface-2);
+  }
+  .sdr-note {
+    margin: 14px 0 0; font-size: 12.5px; color: var(--ink-3); font-style: italic; text-align: center;
+  }
+
+  /* ---- pipeline ---- */
+  .pipe { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+  .step {
+    flex: 1 1 130px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 13px; box-shadow: var(--shadow); position: relative;
+  }
+  .step .n { font-family: var(--mono); font-size: 10.5px; color: var(--accent-ink); letter-spacing: .1em; }
+  .step .t { font-size: 13.5px; font-weight: 620; margin: 3px 0 2px; }
+  .step .d { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .step.final { border-color: var(--accent); background: var(--accent-soft); }
+  .pipe .car { align-self: center; color: var(--ink-3); font-weight: 700; }
+  .failnote {
+    margin-top: 14px; font-size: 13px; color: var(--ink-2);
+    border-left: 3px solid var(--amber); padding: 8px 0 8px 14px; background: var(--amber-soft);
+    border-radius: 0 8px 8px 0;
+  }
+  .failnote b { color: var(--amber); }
+
+  /* ---- table ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); background: var(--surface-2); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--surface-2); }
+  td.mod, td code { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); white-space: normal; }
+  td:first-child { color: var(--ink); font-weight: 560; white-space: normal; }
+  .pill { font-family: var(--mono); font-size: 10.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--ink-3); }
+  .pill.std { color: var(--blue); border-color: var(--blue); }
+
+  /* ---- not-this ---- */
+  .nots { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .not {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .not .x { font-family: var(--mono); color: var(--amber); font-weight: 700; margin-right: 6px; }
+  .not h4 { margin: 0 0 6px; font-size: 14.5px; }
+  .not p { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+  footer { margin-top: 48px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); letter-spacing: .03em; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">Secure UAV Datalink · as-built</p>
+      <h1>JFOXLink Architecture</h1>
+      <p class="lede">A crypto-wrapped, anti-jam derivative of MAVLink&nbsp;v2 for aviation command &amp; control. The stack below is the system as implemented — an explicit security envelope, dual-channel RF redundancy, and radio transports.</p>
+    </div>
+    <button class="toggle" id="themeBtn" aria-label="Toggle color theme">◐ theme</button>
+  </header>
+
+  <hr class="rule">
+
+  <h2>Protocol stack</h2>
+  <div class="stack">
+
+    <div class="layer l-app">
+      <p class="lab">Application</p>
+      <p class="name">Flight Telemetry · Servo / C2 Commands</p>
+      <p class="mods">Consumer of the link — typed mission data in, commands out</p>
+    </div>
+
+    <div class="conn"><span class="tag">Native Rust payload</span><span class="line"></span><span class="arrow"></span></div>
+
+    <div class="layer l-payload">
+      <span class="crate">jfl-core · no_std</span>
+      <p class="lab">Payload / Compatibility</p>
+      <p class="name">Native &amp; MAVLink payloads</p>
+      <p class="mods">native.rs (NativeMessage) · mavlink_compat.rs (MAVLink v2 wrap)</p>
+    </div>
+
+    <div class="conn"><span class="tag">plaintext payload</span><span class="line"></span><span class="arrow"></span></div>
+
+    <div class="layer l-sec envelope">
+      <span class="crate">jfl-core::crypto · frame</span>
+      <p class="lab">Security Envelope</p>
+      <p class="name">Authenticated, encrypted framing</p>
+      <ul class="sublist">
+        <li><span class="k">Frame</span><span class="v">24B header + payload + GCM tag (16) + HMAC (32) — zero-copy <code>from_bytes</code></span></li>
+        <li><span class="k">Confidential</span><span class="v">AES-256-GCM · header authenticated as AAD</span></li>
+        <li><span class="k">Integrity</span><span class="v">HMAC-SHA-256 over header + ciphertext + tag</span></li>
+        <li><span class="k">Key agree</span><span class="v">ECDH P-256 / P-384 → HKDF-SHA-256</span></li>
+        <li><span class="k">Anti-replay</span><span class="v">sliding-window nonce (RFC-6479 style)</span></li>
+      </ul>
+    </div>
+
+    <div class="conn"><span class="tag">authenticated JflFrame — the unified packet</span><span class="line"></span><span class="arrow"></span></div>
+
+    <div class="layer l-redun">
+      <span class="crate">jfl-core::channel</span>
+      <p class="lab">Redundancy / Arbitration</p>
+      <p class="name">Dual-channel voting &amp; failover</p>
+      <p class="mods">manager (health scoring) · voter (best frame) · failover (hysteresis FSM)</p>
+    </div>
+
+    <div class="split" aria-hidden="true">
+      <span class="stem"></span><span class="bar"></span>
+      <span class="legs"><span></span><span></span></span>
+    </div>
+
+    <div class="channels">
+      <div class="chan a">
+        <h3><span>Channel A</span><span>primary</span></h3>
+        <div class="row"><span class="rk">Anti-jam</span><span class="rv">FHSS <code>anti_jam::fhss</code></span></div>
+        <div class="row"><span class="rk">HAL</span><span class="rv">RadioTx/Rx · FreqHop · PowerControl · HwStatus</span></div>
+        <div class="row"><span class="rk">Driver</span><span class="rv">RFD900 — 900 MHz UART <code>jfl-hal::rfd900</code></span></div>
+        <div class="rf-line">~~ RF link A · FHSS ~~</div>
+      </div>
+      <div class="chan b">
+        <h3><span>Channel B</span><span>redundant</span></h3>
+        <div class="row"><span class="rk">Anti-jam</span><span class="rv">DSSS Barker-11 / OFDM <code>anti_jam::dsss</code></span></div>
+        <div class="row"><span class="rk">HAL</span><span class="rv">RadioTx/Rx · FreqHop · PowerControl · HwStatus</span></div>
+        <div class="row"><span class="rk">Driver</span><span class="rv">SX1280 — 2.4 GHz SPI <code>jfl-hal::sx1280</code></span></div>
+        <div class="rf-line">~~ RF link B · DSSS / OFDM ~~</div>
+      </div>
+    </div>
+    <p class="sdr-note">In defense profiles an SDR (USRP / HackRF) can back either channel, adding adaptive hopping + spectral nulling.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2>Receive pipeline · validate before decrypt</h2>
+  <div class="pipe">
+    <div class="step"><span class="n">01</span><div class="t">Parse</div><div class="d">frame::from_bytes</div></div>
+    <span class="car">→</span>
+    <div class="step"><span class="n">02</span><div class="t">Verify HMAC</div><div class="d">header+payload+tag</div></div>
+    <span class="car">→</span>
+    <div class="step"><span class="n">03</span><div class="t">Replay check</div><div class="d">nonce sequence</div></div>
+    <span class="car">→</span>
+    <div class="step"><span class="n">04</span><div class="t">Decrypt</div><div class="d">AES-256-GCM · AAD</div></div>
+    <span class="car">→</span>
+    <div class="step final"><span class="n">05</span><div class="t">NativeMessage</div><div class="d">payload to app</div></div>
+  </div>
+  <p class="failnote"><b>Fail-closed:</b> any step failing returns a typed error (FrameParse · HmacMismatch · ReplayDetected · CryptoFailure) and the frame is dropped, never trusted. Transmit runs the inverse — encrypt-then-MAC.</p>
+
+  <hr class="rule">
+
+  <h2>Layer → module → crate</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Layer</th><th>Modules</th><th>Crate</th><th>Env</th></tr></thead>
+      <tbody>
+        <tr><td>Payload / compatibility</td><td class="mod">native · mavlink_compat</td><td><code>jfl-core</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Frame codec</td><td class="mod">frame</td><td><code>jfl-core</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Crypto envelope</td><td class="mod">crypto/{aes_gcm, hmac, ecdh, hkdf, nonce}</td><td><code>jfl-core</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Redundancy / arbitration</td><td class="mod">channel/{manager, voter, failover}</td><td><code>jfl-core</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Anti-jam</td><td class="mod">anti_jam/{fhss, dsss, detector}</td><td><code>jfl-core</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>HAL / PHY traits</td><td class="mod">traits (RadioTx/Rx, FrequencyHop, PowerControl, HwStatus, SerialLine)</td><td><code>jfl-hal</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Radio drivers</td><td class="mod">rfd900 (UART) · sx1280 (SPI) · sdr (host iface)</td><td><code>jfl-hal</code></td><td><span class="pill">no_std</span></td></tr>
+        <tr><td>Ground station</td><td class="mod">decoder · key_store · tx · config</td><td><code>jfl-gcs</code></td><td><span class="pill std">std</span></td></tr>
+        <tr><td>Simulator</td><td class="mod">channel_emulator · threat_injector</td><td><code>jfl-sim</code></td><td><span class="pill std">std</span></td></tr>
+        <tr><td>Tooling</td><td class="mod">key_provisioner · link_analyzer · fuzz</td><td><code>tools/*</code></td><td><span class="pill std">std</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr class="rule">
+
+  <h2>What this design is not</h2>
+  <div class="nots">
+    <div class="not">
+      <h4><span class="x">✕</span>Pub/sub Subject IDs</h4>
+      <p>No Cyphal-style session manager or dynamic node allocation. Addressing is MAVLink <code>sysid</code>/<code>compid</code>.</p>
+    </div>
+    <div class="not">
+      <h4><span class="x">✕</span>CAN / UDP routing trait</h4>
+      <p>Transports are RF radios; "routing" means choosing the healthier of two redundant RF channels — not subject/node dispatch.</p>
+    </div>
+    <div class="not">
+      <h4><span class="x">✕</span>Security as an add-on</h4>
+      <p>Crypto and anti-jam sit in the main data path, not off to the side. They are the reason the protocol exists.</p>
+    </div>
+  </div>
+
+  <footer>JFOXLink · JFOX Aircraft Co., Ltd. — architecture reflects the code as built (design B).</footer>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('themeBtn');
+    var root = document.documentElement;
+    btn.addEventListener('click', function () {
+      var cur = root.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light' : cur === 'light' ? 'dark'
+        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
+      root.setAttribute('data-theme', next);
+    });
+  })();
+</script>

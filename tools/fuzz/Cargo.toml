@@ -2,11 +2,21 @@
 name = "jfl-fuzz"
 version = "0.1.0"
 edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
 
 [dependencies]
+libfuzzer-sys = "0.4"
 jfl-core = { path = "../../crates/jfl-core" }
-arbitrary = { version = "1.3", features = ["derive"] }
 
 [[bin]]
 name = "frame_fuzz"
 path = "fuzz_targets/frame_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+# Detach from the parent workspace: this crate is built only by `cargo fuzz`.
+[workspace]

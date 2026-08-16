@@ -49,10 +49,12 @@ JFOXLink is a high-assurance secure radio protocol suite designed for mission-cr
 - `anti_jam/{fhss, dsss, detector}.rs` — Frequency hopping and jamming detection
 - `mavlink_compat.rs` — Optional MAVLink v2 payload wrapper
 
-**Features**:
-- `default`: All crypto modules enabled
-- `crypto_aes`: AES-GCM support (enabled by default)
-- `crypto_ecdh`: ECDH key exchange (enabled by default)
+**Features** (profile-based — there are no `crypto_aes`/`crypto_ecdh` flags):
+- `default = ["defense-full"]` — Suite B; pulls in the optional `p384` dependency (ECDH P-384).
+- `defense-lite` — defense profile without P-384 (ECDH P-256).
+- `commercial` / `hobbyist` — lighter profile gates.
+
+Build a non-default profile with `--no-default-features --features <profile>`.
 
 **Build**:
 ```bash
@@ -68,16 +70,17 @@ cargo test -p jfl-core
 
 **Purpose**: Hardware abstraction layer for radio transceivers and SDRs.
 
-**Traits**:
-- `DatalinkTx` / `DatalinkRx` — transmit/receive operations
-- `FrequencyHop` — frequency-hopping control
+**Traits** (`traits.rs`, all returning the real `HalError` enum, not `()`):
+- `RadioTx` / `RadioRx` — transmit/receive a framed payload
+- `FrequencyHop` — channel / frequency control
 - `PowerControl` — transmit power adjustment
-- `HwStatus` — health monitoring (RSSI, BER, temperature)
+- `HwStatus` — health monitoring (RSSI, healthy flag)
+- `SerialLine` — blocking byte-stream transport used by serial drivers
 
 **Drivers**:
-- `rfd900.rs` — RFD900x and SiK firmware via serial UART
-- `sx1280.rs` — Semtech SX1280 LoRa/FHSS transceiver
-- `sdr.rs` — USRP/HackRF via gr-osmosdr (defense profile only)
+- `rfd900.rs` — RFD900x / SiK over UART: CRC-16 framing + SiK AT commands (implemented, tested via loopback)
+- `sx1280.rs` — Semtech SX1280 over SPI: real datasheet opcodes + PLL/power encodings (implemented, tested via mock SPI)
+- `sdr.rs` — host-only `SdrBackend` interface for USRP/HackRF (concrete backend is host-side, not bundled in this `no_std` crate)
 
 **Build**:
 ```bash
@@ -89,9 +92,11 @@ cargo build -p jfl-hal --release
 **Purpose**: Ground control station decoder and key provisioning client.
 
 **Modules**:
-- `decoder.rs` — Full stack: PHY → nonce validation → AES-GCM decrypt → HMAC verify → native payload decode
-- `key_store.rs` — OS keychain integration (Windows DPAPI, macOS Keychain, Linux Secret Service)
-- `main.rs` — CLI/TUI interface for mission upload and live telemetry
+- `decoder.rs` — Full receive stack: parse → HMAC verify → replay check → AES-GCM decrypt → native payload
+- `tx.rs` — Transmit path (encrypt-then-MAC)
+- `key_store.rs` — **Fail-closed** session-key store: real two-step ECDH handshake (`OsRng`), AES-256-GCM encrypted-at-rest under a runtime KEK; never returns placeholder keys
+- `config.rs` — Profile TOML loader
+- `main.rs` — clap CLI (`profile`, `selftest`, `decode`)
 
 **Build**:
 ```bash
@@ -120,20 +125,19 @@ cargo build -p jfl-sim --release
 
 **Run**:
 ```bash
-cargo run -p jfl-sim -- --scenario defense-full --jam-power -80 --frame-loss 0.05
+cargo run -p jfl-sim -- --scenario defense-full --jam wide --frames 1000 --frame-loss 0.05
 ```
 
 ### `tools/fuzz`
 
-**Purpose**: Fuzzing harnesses for protocol robustness.
+**Purpose**: Fuzzing harness for protocol robustness (detached from the workspace).
 
 **Targets**:
 - `frame_fuzz` — Frame parser with arbitrary binary input
 
 **Run**:
 ```bash
-cd tools/fuzz
-cargo fuzz run frame_fuzz --
+cargo +nightly fuzz run frame_fuzz --fuzz-dir tools/fuzz --
 ```
 
 ### `tools/key_provisioner`
@@ -195,8 +199,8 @@ cargo test
 cargo build -p jfl-core --release
 cargo test -p jfl-core
 
-# With feature flags
-cargo build -p jfl-core --features crypto_ecdh --release
+# With a specific profile feature
+cargo build -p jfl-core --no-default-features --features defense-lite --release
 ```
 
 ### Code style and linting
@@ -232,7 +236,7 @@ cargo fmt --all
 ### Adding a new hardware driver to `jfl-hal`
 
 1. Create `crates/jfl-hal/src/new_driver.rs`
-2. Implement `DatalinkTx`, `DatalinkRx`, and optional traits
+2. Implement `RadioTx`, `RadioRx`, and optional traits (`FrequencyHop`, `PowerControl`, `HwStatus`), returning `HalError` on failure
 3. Add `pub mod new_driver;` to `crates/jfl-hal/src/lib.rs`
 4. Add integration tests in `crates/jfl-hal/tests/`
 5. Document the serial protocol or register map in comments
@@ -268,11 +272,14 @@ cargo test --test '*'
 
 ### Fuzzing
 
-Continuous fuzzing with LLVM libFuzzer:
+Continuous fuzzing with LLVM libFuzzer (the `tools/fuzz` crate is detached from
+the workspace; use `--fuzz-dir`):
 ```bash
-cd tools/fuzz
-cargo fuzz run frame_fuzz -- -max_len=256 -timeout=1
+cargo +nightly fuzz run frame_fuzz --fuzz-dir tools/fuzz -- -max_len=512 -timeout=1
 ```
+
+CI (`.github/workflows/ci.yml`) runs fmt-check, clippy, build, and test on
+stable, plus a non-blocking nightly fuzz job.
 
 ### Simulation
 
@@ -280,9 +287,10 @@ Deterministic replay of adversarial scenarios:
 ```bash
 cargo run -p jfl-sim --release -- \
   --scenario defense-full \
-  --jam-power -85 \
+  --jam wide \
   --frame-loss 0.10 \
-  --channel-delay-ms 50
+  --frames 5000 \
+  --seed 42
 ```
 
 ## Debugging
@@ -326,12 +334,11 @@ Before tagging a release:
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| `hkdf` feature error | Invalid feature flag | Use only `default` or omit features |
-| `heapless::Vec::try_push` missing | Old version of heapless | Update `Cargo.lock`: `cargo update` |
-| AES tag mismatch | Type mismatch with `GenericArray` | Use `GenericArray::from(*array_slice)` |
+| unknown feature `crypto_aes`/`crypto_ecdh` | Features are profile-based | Use `defense-full` (default), `defense-lite`, `commercial`, or `hobbyist` |
 | Lifetime in `frame.rs` | Parser returns borrowed data | Signature is `fn from_bytes(raw: &'a [u8])` |
-| `no_std` error in fuzz target | Fuzz runner needs `std` | Remove `#![no_std]` from fuzz target |
-| UI dependency failure on Windows | `winapi` feature | Remove `egui`/`eframe` from non-GUI tools |
+| `cargo build` tries to link `jfl-fuzz` | — | It shouldn't; the crate is `exclude`d from the workspace. Fuzz it via `cargo +nightly fuzz ... --fuzz-dir tools/fuzz` |
+| `deprecated GenericArray` warnings | aes-gcm 0.10 pins generic-array 0.14 | Transitive; already `#[allow(deprecated)]` in `crypto/aes_gcm.rs` |
+| ECDH keys all zero | You're on stale code | `derive_session_keys` now performs real ECDH→HKDF; update your branch |
 
 ## Contributing
 
