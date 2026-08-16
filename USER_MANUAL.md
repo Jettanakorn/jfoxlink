@@ -24,9 +24,9 @@ This manual guides operators and system integrators through installation, config
 
 ### Software
 
-- **Rust toolchain** (stable): For building from source
-- **Java 11+**: Optional, for GUI tools
-- **Python 3.8+**: Optional, for analysis scripts
+- **Rust toolchain** (stable): required, for building from source
+- **Rust nightly + `cargo-fuzz`**: optional, only for running the fuzz target
+- **Python 3.8+**: optional, only for the example log-analysis script below
 
 ## Installation
 
@@ -85,9 +85,10 @@ For hobbyist and light commercial use.
 [profile]
 name = "COMMERCIAL-LOW"
 crypto_suite = "AES-128-GCM"
-channel_a = "900MHz-FHSS"
-channel_b = "2.4GHz-OFDM"
+channel_a = "915MHz-FHSS"
+channel_b = "2.4GHz-DSSS"
 anti_jam = "FHSS"
+cert_target = "None"
 ```
 
 **Use when**:
@@ -108,7 +109,8 @@ channel_a = "900MHz-FHSS"
 channel_b = "5.8GHz-OFDM"
 anti_jam = "FHSS+PowerCtrl"
 cert_target = "DO-160G"
-key_rotation_s = 7200
+# Optional numeric tunables (replay_window, key_rotation_s, jam_threshold_dbm)
+# may be added; only defense-full.toml sets them in the shipped configs.
 ```
 
 **Use when**:
@@ -124,14 +126,11 @@ For military applications with moderate anti-jam requirements (MIL-STD-461G).
 # config/defense-lite.toml
 [profile]
 name = "DEFENSE-LITE"
-crypto_suite = "AES-256+ECDH-P256-HKDF"
-channel_a = "SDR-FHSS"
-channel_b = "SDR-DSSS"
-anti_jam = "AJ-OFDM"
+crypto_suite = "AES-256-GCM+ECDH-P-256"
+channel_a = "900MHz-FHSS"
+channel_b = "1.4GHz-DSSS"
+anti_jam = "AJ-OFDM+FHSS"
 cert_target = "MIL-STD-461G"
-replay_window = 128
-key_rotation_s = 3600
-jam_threshold_dbm = -85
 ```
 
 **Use when**:
@@ -152,8 +151,8 @@ channel_a = "SDR-FHSS"
 channel_b = "SDR-DSSS"
 anti_jam = "Adaptive+PowerCtrl+Nulling"
 cert_target = "DO-178C-DAL-B"
-replay_window = 256
-key_rotation_s = 1800
+replay_window = 64
+key_rotation_s = 3600
 jam_threshold_dbm = -85
 ```
 
@@ -168,12 +167,17 @@ jam_threshold_dbm = -85
 
 The GCS decodes incoming radio frames, validates encryption, and displays live telemetry.
 
+The GCS is a subcommand CLI (`profile`, `selftest`, `decode`):
+
 ```bash
-# Using the default commercial-high profile
-cargo run -p jfl-gcs --release -- --config config/commercial-high.toml
+# Print a loaded profile
+cargo run -p jfl-gcs --release -- --config config/commercial-high.toml profile
+
+# End-to-end secure-link self-test (ECDH handshake → encrypt → decode → replay-reject)
+cargo run -p jfl-gcs --release -- --config config/defense-full.toml selftest
 
 # Or run the pre-built binary
-./target/release/jfl-gcs --config config/commercial-high.toml
+./target/release/jfl-gcs --config config/commercial-high.toml selftest
 ```
 
 **Key features**:
@@ -184,10 +188,13 @@ cargo run -p jfl-gcs --release -- --config config/commercial-high.toml
 
 ### Real-Time Link Monitoring (Link Analyzer)
 
-Monitor RF health metrics in real time.
+Summarize RF link health from a series of RSSI samples (a demo series, or your
+own via stdin).
 
 ```bash
-cargo run -p link_analyzer --release
+cargo run -p link_analyzer --release -- --samples 48
+# ...or pipe your own whitespace-separated dBm samples:
+echo "-62 -65 -70 -95 -91 -68" | cargo run -p link_analyzer --release -- --stdin
 ```
 
 **Dashboard displays**:
@@ -202,20 +209,23 @@ cargo run -p link_analyzer --release
 Test your configuration before deploying to hardware.
 
 ```bash
-# Simulate defense-full profile under jamming
+# Simulate defense-full profile under wideband jamming
 cargo run -p jfl-sim --release -- \
   --scenario defense-full \
-  --jam-type narrowband \
-  --jam-power -80 \
-  --frame-loss 0.05 \
-  --duration-sec 60
+  --jam wide \
+  --frames 1000 \
+  --frame-loss 0.05
 ```
 
-**Simulator scenarios**:
-- `commercial-low`, `commercial-high`, `defense-lite`, `defense-full`
-- Jamming types: `narrowband`, `wideband`, `chirp`, `none`
-- Frame loss: 0.0 – 1.0
-- Channel delay: configurable milliseconds
+**Simulator flags** (see `--help`):
+- `--scenario <label>` — informational scenario name
+- `--jam <none|narrow|wide>` — jamming to inject
+- `--frames <N>` — number of frames to simulate
+- `--frame-loss <0.0–1.0>` — per-frame drop probability
+- `--seed <u64>` — RNG seed (runs are deterministic)
+- `--distance-m <m>` · `--jam-threshold <dBm>` — path-loss distance and detector threshold
+
+Note: pass negative values with `=`, e.g. `--jam-threshold=-120`.
 
 ## Operational Procedures
 
@@ -243,8 +253,8 @@ cargo run -p jfl-sim --release -- \
    ```bash
    cargo run -p jfl-sim --release -- \
      --scenario <your-profile> \
-     --jam-power -75 \
-     --duration-sec 300
+     --jam narrow \
+     --frames 3000
    ```
    - Verify anti-jam holds lock during jamming
    - Confirm replay window blocks repeated frames
@@ -292,10 +302,13 @@ Once airborne:
 
 1. **Generation**: Use `tools/key_provisioner` for ECDH key exchange
    ```bash
-   cargo run -p key_provisioner --release
+   cargo run -p key_provisioner --release -- handshake   # two-party agreement demo
+   cargo run -p key_provisioner --release -- pubkey       # print an ephemeral public key
    ```
 
-2. **Storage**: Keys stored in OS keychain (Windows DPAPI, macOS Keychain, Linux Secret Service)
+2. **Storage**: The GCS key store is fail-closed and encrypts session keys at
+   rest with AES-256-GCM under a key-encryption key (KEK) the integrator sources
+   from an OS keychain / HSM. It never persists or returns unencrypted key material.
 
 3. **Rotation**: Automatic on schedule
    - Commercial-high: every 2 hours
@@ -426,23 +439,27 @@ cargo run -p jfl-gcs -- --config config/custom.toml
 To integrate custom radio hardware:
 
 1. Create new driver in `crates/jfl-hal/src/my_radio.rs`
-2. Implement `DatalinkTx`, `DatalinkRx`, `FrequencyHop` traits
-3. Register in `crates/jfl-hal/src/lib.rs`
+2. Implement `RadioTx`, `RadioRx`, and any optional traits (`FrequencyHop`, `PowerControl`, `HwStatus`)
+3. Register with `pub mod my_radio;` in `crates/jfl-hal/src/lib.rs`
 4. Link in GCS or jfl-sim
 
 Example:
 ```rust
+use jfl_hal::traits::{RadioTx, RadioRx, HalError};
+
 pub struct MyRadio { /* ... */ }
 
-impl DatalinkTx for MyRadio {
-    fn send(&mut self, frame: &[u8]) -> Result<(), HalError> {
+impl RadioTx for MyRadio {
+    fn send_frame(&mut self, payload: &[u8]) -> Result<(), HalError> {
         // Transmit to your hardware
+        Ok(())
     }
 }
 
-impl DatalinkRx for MyRadio {
-    fn recv(&mut self, buf: &mut [u8]) -> Result<usize, HalError> {
+impl RadioRx for MyRadio {
+    fn read_frame(&mut self, buf: &mut [u8]) -> Result<usize, HalError> {
         // Receive from your hardware
+        Ok(0)
     }
 }
 ```

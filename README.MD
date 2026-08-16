@@ -1,130 +1,90 @@
 # JFOXLink
 
-A workspace for the JFOXLink secure radio protocol suite. This repository contains the core protocol implementation, hardware abstraction layers, ground control station software, simulation tools, and supporting utilities.
+A secure UAV radio-datalink protocol suite — a hardened, crypto-wrapped derivative of MAVLink v2 with dual-channel redundancy and anti-jam. This repository contains the protocol core, a hardware-abstraction layer with real radio drivers, ground-control-station software, a deterministic simulator, and supporting CLI tools.
 
 Developed by Jettanakorn Pengsiri at JFOX Aircraft Co., Ltd.
 
+> **Status:** real, tested software (49 tests, CI-gated) — **not** hardware-validated or certified. It is not fieldable until on-air validation and any required certification (DO-178C / MIL-STD) are complete. See [PROJECT_REPORT.md](PROJECT_REPORT.md).
+
 ## Workspace layout
 
-- `Cargo.toml` — workspace root with `resolver = "2"` and release profile optimized for size + `panic = "abort"`.
-- `config/` — example payload and radio profiles for commercial and defense use cases.
-- `crates/` — core protocol, hardware abstraction, GCS client, and simulator crates.
-- `tools/` — command-line utilities, link visualization, and fuzzing harnesses.
+```
+crates/
+  jfl-core   (no_std)  protocol engine: frame, crypto, channel, anti_jam
+  jfl-hal    (no_std)  radio traits + RFD900 / SX1280 drivers + SDR interface
+  jfl-gcs    (std)     ground station: decode stack, key store, tx, CLI
+  jfl-sim    (std)     deterministic RF / threat simulator
+tools/
+  key_provisioner      ECDH key-provisioning CLI
+  link_analyzer        RF link-quality dashboard
+  fuzz (jfl-fuzz)      libFuzzer frame-parser target (detached crate)
+config/                four runtime profiles (commercial / defense)
+```
 
-### Crates
-
-- `crates/jfl-core` — `no_std` protocol engine.
-  - frame parsing, serialization, redundancy, and feature-gated crypto modules.
-- `crates/jfl-hal` — hardware abstraction layer.
-  - embedded radio traits, FHSS/DSSS drivers, and SDR backends.
-- `crates/jfl-gcs` — ground control station client.
-  - Native secure payload decoder plus key storage and provisioning support.
-- `crates/jfl-sim` — deterministic protocol simulator.
-  - RF channel/emulator and threat injection for testing.
-
-### Tools
-
-- `tools/key_provisioner` — ECDH key agreement and certificate preparation.
-- `tools/link_analyzer` — real-time link dashboard and RF health monitor.
-- `tools/fuzz` — `cargo-fuzz` targets for frame parser and crypto validation.
+Everything depends on `jfl-core`. See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the layered design (or the rendered [docs/architecture.html](docs/architecture.html)).
 
 ## Build and run
 
-### Prerequisites
+Requires a stable Rust toolchain (`rustup`).
 
-- Rust toolchain (stable)
-- `cargo` installed and available in PATH
+```bash
+git clone https://github.com/Jettanakorn/jfoxlink.git
+cd jfoxlink
 
-### Build everything
-
-```powershell
-cd C:\home\project\JFOXLink1.0
-cargo test
+cargo build --release      # build the whole workspace
+cargo test                 # run all tests (49)
 ```
 
-### Run individual packages
+Run the pieces:
 
-- Core unit tests:
+```bash
+# Ground station — end-to-end secure-link self-test (ECDH → encrypt → decode → replay-reject)
+cargo run -p jfl-gcs -- --config config/defense-full.toml selftest
+# ...or just print a loaded profile (also: `decode --file <f> --aes-hex <hex> --hmac-hex <hex>`)
+cargo run -p jfl-gcs -- --config config/commercial-high.toml profile
 
-```powershell
-cargo test -p jfl-core
+# Simulator — deterministic scenario runner
+cargo run -p jfl-sim -- --scenario defense-full --frames 1000 --jam wide
+
+# Tools
+cargo run -p key_provisioner -- handshake     # two-party ECDH agreement demo
+cargo run -p link_analyzer -- --samples 48    # RF link-quality dashboard
 ```
 
-- GCS client:
+Binaries land in `target/release/` (`jfl-gcs`, `jfl-sim`, `key_provisioner`, `link_analyzer`).
 
-```powershell
-cargo run -p jfl-gcs --
+## Fuzzing
+
+The `tools/fuzz` crate is a `#![no_main]` libFuzzer target detached from the workspace, so `cargo build`/`test` skip it. Fuzz the frame parser with the nightly `cargo-fuzz` toolchain:
+
+```bash
+cargo +nightly fuzz run frame_fuzz --fuzz-dir tools/fuzz -- -max_len=512
 ```
 
-- Simulator:
+## Configuration profiles
 
-```powershell
-cargo run -p jfl-sim --
-```
+Four profiles in `config/` select crypto suite, RF bands, anti-jam strategy, and (for defense-full) replay window, key rotation, and jam threshold:
 
-- Link analyzer:
+| Profile | Crypto | Channel A | Channel B | Anti-jam | Cert target |
+|---------|--------|-----------|-----------|----------|-------------|
+| `commercial-low`  | AES-128-GCM | 915 MHz FHSS | 2.4 GHz DSSS | FHSS | None |
+| `commercial-high` | AES-256-GCM | 900 MHz FHSS | 5.8 GHz OFDM | FHSS + PowerCtrl | DO-160G |
+| `defense-lite`    | AES-256-GCM + ECDH-P-256 | 900 MHz FHSS | 1.4 GHz DSSS | AJ-OFDM + FHSS | MIL-STD-461G |
+| `defense-full`    | Suite B (AES-256 + ECDH-P-384 + HKDF) | SDR FHSS | SDR DSSS | Adaptive + PowerCtrl + Nulling | DO-178C-DAL-B |
 
-```powershell
-cargo run -p link_analyzer --
-```
-
-### Fuzz harness
-
-```powershell
-cd tools/fuzz
-cargo test
-```
+Values are read verbatim from `config/*.toml`; the full parameter reference is in **[PARAMETERS.md](PARAMETERS.md)**.
 
 ## Documentation
 
-For detailed information, see:
-
-- **[DEVELOPER.md](DEVELOPER.md)** — Architecture, crate design, development workflow, testing strategy, and contribution guidelines.
-- **[USER_MANUAL.md](USER_MANUAL.md)** — Installation, configuration profiles, operational procedures, security practices, and troubleshooting.
-- **[PARAMETERS.md](PARAMETERS.md)** — Full parameter reference: user (`config/*.toml`) profile keys and developer-level `jfl-core` constants and tunables.
-- **[REVISION_CONTROL.md](REVISION_CONTROL.md)** — Git Flow branching strategy, commit conventions, and collaboration workflow.
-
-## Quick Start
-
-1. **Clone and build**:
-   ```bash
-   git clone https://github.com/Jettanakorn/jfoxlink.git
-   cd jfoxlink
-   cargo build --release
-   ```
-
-2. **Run tests**:
-   ```bash
-   cargo test
-   ```
-
-3. **Try the simulator** (no hardware required):
-   ```bash
-   cargo run -p jfl-sim --release -- --scenario commercial-high
-   ```
-
-4. **Launch GCS** (requires transceiver):
-   ```bash
-   cargo run -p jfl-gcs --release -- --config config/commercial-high.toml
-   ```
-
-## Configuration Profiles
-
-Four profiles available; see `config/` directory:
-
-| Profile | Crypto | Use Case | Cert Target |
-|---------|--------|----------|------------|
-| `commercial-low` | AES-128-GCM | Hobbyist/light commercial | None |
-| `commercial-high` | AES-256-GCM | Commercial aircraft | DO-160G |
-| `defense-lite` | AES-256+ECDH-P256 | Military applications | MIL-STD-461G |
-| `defense-full` | Suite B (P-384) | High-threat environments | DO-178C-DAL-B |
-
-For details, see [USER_MANUAL.md](USER_MANUAL.md#configuration).
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the layered stack as implemented (+ rendered `docs/architecture.html`).
+- **[PARAMETERS.md](PARAMETERS.md)** — user (config) and developer (code constant) parameter reference.
+- **[PROJECT_REPORT.md](PROJECT_REPORT.md)** — component status, verification, risks, and remaining gaps.
+- **[DEVELOPER.md](DEVELOPER.md)** — architecture, crate design, and development workflow.
+- **[USER_MANUAL.md](USER_MANUAL.md)** — installation, profiles, operation, and troubleshooting.
+- **[CHANGELOG.md](CHANGELOG.md)** · **[LICENSE.md](LICENSE.md)**
 
 ## Notes
 
-- `jfl-core` is designed for `no_std` environments with optional crypto features.
-- Release builds use `opt-level = "z"`, `lto = true`, and `codegen-units = 1` for compact output.
-- The workspace currently compiles successfully under the checked Rust environment.
-- Full development guidelines and architecture details are in [DEVELOPER.md](DEVELOPER.md).
-- Revision control procedures and contribution workflows are in [REVISION_CONTROL.md](REVISION_CONTROL.md).
+- `jfl-core` is `no_std` (no heap for core types, `heapless::Vec`), `#![deny(unsafe_code)]`, and its frame parser never panics.
+- Release builds use `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`.
+- Feature flags are **profile-based** (`hobbyist` / `commercial` / `defense-lite` / `defense-full`, default `defense-full`) — not the `crypto_*` flags older prose mentions.
