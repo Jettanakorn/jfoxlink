@@ -12,11 +12,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use jfl_core::anti_jam::fhss::{HopKey, KeyedHopSchedule};
 
 use config::Profile;
 use decoder::GcsDecoder;
 use key_store::KeyStore;
 use tx::FrameTx;
+
+/// Hop-channel count used by the self-test (design target for the FHSS band).
+const FHSS_CHANNELS: u32 = 100;
 
 #[derive(Parser)]
 #[command(name = "jfl-gcs", about = "JFOXLink Ground Control Station", version)]
@@ -112,10 +116,36 @@ fn selftest(p: &Profile) -> Result<(), String> {
         .map_err(|e| format!("{e:?}"))?;
     let keys = gcs.load_keys().map_err(|e| format!("{e:?}"))?;
     println!(
-        "[ok] ECDH session established (aes fp {}, hmac fp {})",
+        "[ok] ECDH session established (aes fp {}, hmac fp {}, hop fp {})",
         fp(&keys.aes_key),
-        fp(&keys.hmac_key)
+        fp(&keys.hmac_key),
+        fp(&keys.hop_key)
     );
+
+    // Both sides derive the keyed FHSS hop schedule from the session hop key
+    // and must agree on every channel from a shared slot counter.
+    let uav_keys = uav.load_keys().map_err(|e| format!("{e:?}"))?;
+    let mut hop_gcs =
+        KeyedHopSchedule::new(HopKey(keys.hop_key), FHSS_CHANNELS).map_err(|e| format!("{e:?}"))?;
+    let mut hop_uav = KeyedHopSchedule::new(HopKey(uav_keys.hop_key), FHSS_CHANNELS)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut first_hops = [0u32; 8];
+    for (i, h) in first_hops.iter_mut().enumerate() {
+        let (a, b) = (hop_gcs.next_channel(), hop_uav.next_channel());
+        if a != b {
+            return Err(format!("hop schedule diverged at slot {i}: {a} vs {b}"));
+        }
+        *h = a;
+    }
+    // Simulate a UAV dropout and GPS-time resync.
+    for _ in 0..1_000 {
+        hop_gcs.next_channel();
+    }
+    hop_uav.sync_to(hop_gcs.current_slot());
+    if hop_gcs.next_channel() != hop_uav.next_channel() {
+        return Err("hop schedule failed to resync".into());
+    }
+    println!("[ok] Keyed FHSS schedule agreed ({FHSS_CHANNELS} ch), first hops {first_hops:?}, resync ok");
 
     // UAV side encrypts a telemetry frame; GCS side decodes it.
     let mut tx = FrameTx::new(&keys.aes_key, &keys.hmac_key, keys.nonce_prefix);
