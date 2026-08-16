@@ -81,6 +81,7 @@ For detailed information, see:
 
 - **[DEVELOPER.md](DEVELOPER.md)** — Architecture, crate design, development workflow, testing strategy, and contribution guidelines.
 - **[USER_MANUAL.md](USER_MANUAL.md)** — Installation, configuration profiles, operational procedures, security practices, and troubleshooting.
+- **[MAVLINK_PROTOCOL_HANDBOOK.md](MAVLINK_PROTOCOL_HANDBOOK.md)** — Reference to the MAVLink protocol JFOXLink is derived from: packet framing, CRC, signing, routing, XML dialects, microservices, and how JFOXLink extends it.
 - **[REVISION_CONTROL.md](REVISION_CONTROL.md)** — Git Flow branching strategy, commit conventions, and collaboration workflow.
 
 ## Quick Start
