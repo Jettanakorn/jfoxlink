@@ -91,8 +91,8 @@ Minimum valid frame size is `JFL_HEADER_LEN + JFL_GCM_TAG_LEN + JFL_HMAC_LEN`
 
 | Parameter | Where | Type | Default / Value | Purpose |
 |-----------|-------|------|-----------------|---------|
-| `seed` | `FhssEngine::new` | `u32` | caller-supplied | LFSR seed for the hop sequence. **Replace the LFSR with a CSPRNG for defense builds** (noted in source). |
-| `channel_count` | `FhssEngine::new` (`channels`) | `u32` | caller-supplied (design target: 100) | Number of hop channels; `next_channel()` returns `hop % channel_count`. |
+| `seed` | `FhssEngine::new` | `u32` | caller-supplied (0 → `FHSS_RESEED` = `0xACE1_2345`) | LFSR seed for the hop sequence. A zero seed (and any all-zero LFSR state reached at runtime) is reseeded so the sequence can never collapse to one channel. **Still deterministic — replace with a CSPRNG/keyed schedule for defense builds** (noted in source). |
+| `channel_count` | `FhssEngine::new` (`channels`) | `u32` | caller-supplied, clamped to `≥ 1` (design target: 100) | Number of hop channels; `next_channel()` returns `hop % channel_count`. Clamping prevents a divide-by-zero panic. |
 | `BARKER_11` | `dsss.rs` | `[i8; 11]` | `[1,1,1,-1,-1,-1,1,-1,-1,1,-1]` | 11-chip Barker spreading code; ~10.4 dB processing gain. |
 | `threshold_dbm` | `JamDetector` | `i8` | caller-supplied (profile `jam_threshold_dbm`, e.g. `-85`) | Spectral energy level that trips `evaluate()`. |
 | `spectral_energy` | `JamDetector` | `[i16; 64]` | runtime | 64-bin FFT energy buffer scanned by the detector. |
@@ -101,21 +101,37 @@ Minimum valid frame size is `JFL_HEADER_LEN + JFL_GCM_TAG_LEN + JFL_HMAC_LEN`
 
 | Parameter | Where | Type | Default / Value | Purpose |
 |-----------|-------|------|-----------------|---------|
-| `min_hold_ms` | `FailoverFSM::new` (`hold_ms`) | `u16` | caller-supplied | Minimum dwell before a channel switch is allowed; prevents flapping (design: ≥ 2 hop periods). |
+| `min_hold_ms` | `FailoverFSM::new` (`hold_ms`) | `u16` | caller-supplied | Minimum dwell before a channel switch is allowed; prevents flapping (design: ≥ 2 hop periods). The internal `timer` uses saturating addition so a long hold can't overflow and reset the guard. |
 | `hysteresis` | `DualChannelManager` | `u8` | starts `0`, capped at `3` | Counts consecutive inconclusive arbitrations; holds the active channel until a decisive score gap. |
 | arbitration switch gap | `DualChannelManager::arbitrate` | `i32` | `15` | A channel switches only when the score difference `|sa - sb|` exceeds this. |
 | health score weights | `DualChannelManager::arbitrate` | — | `rssi - ber*1000 - jam_prob*5 - latency_us/100` | Relative weighting of the four health metrics in channel scoring. |
 | `rssi_dbm` | `ChannelHealth` | `i8` | runtime | Received signal strength, dBm. |
-| `ber` | `ChannelHealth` | `f32` | runtime | Bit error rate (fraction). |
+| `ber` | `ChannelHealth` | `f32` | runtime | Bit error rate (fraction). A non-finite value (NaN/inf from a faulted radio) is treated as worst-case (`1.0`) so a dead channel can't score as healthy. |
 | `jam_prob` | `ChannelHealth` | `u8` | runtime (0–255) | Jamming-probability estimate. |
 | `latency_us` | `ChannelHealth` | `u16` | runtime | One-way latency, microseconds. |
 
-### Replay / nonce — `crypto/nonce.rs`
+### Nonce & replay — `crypto/nonce.rs`
+
+The nonce module splits transmit (generation) from receive (replay validation).
 
 | Parameter | Where | Type | Default / Value | Purpose |
 |-----------|-------|------|-----------------|---------|
-| `window` | `NonceManager::new` (`window_size`) | `u64` | caller-supplied (profile `replay_window`) | Sliding acceptance window. `verify_nonce` rejects any nonce that is in the future or older than `current - window`. |
-| `counter` | `NonceManager` | `AtomicU64` | starts `0` | Monotonic nonce counter; never reused. |
+| `NONCE_PREFIX_LEN` | const | `usize` | `4` | Bytes of per-session prefix at the start of the 12-byte GCM nonce. |
+| `NONCE_SEQ_OFFSET` | const | `usize` | `4` | Byte offset of the 8-byte little-endian sequence within the nonce. |
+| `MAX_REPLAY_WINDOW` | const | `u64` | `256` | Largest anti-replay window supported (bitmap size); covers the widest profile. |
+| `prefix` | `NonceGenerator::new` | `[u8; 4]` | caller-supplied (random per session) | Session salt; keeps nonces unique across concurrent sessions sharing a key. |
+| `counter` | `NonceGenerator` (TX) | `u64` | starts `0` | Monotonic sequence; `next_nonce()` returns a 12-byte nonce + `u64` seq and **errors on exhaustion** (forces re-key rather than reusing a nonce). |
+| `window` | `NonceManager::new` (`window_size`) (RX) | `u64` | caller-supplied (profile `replay_window`), clamped to `1..=256` | Sliding acceptance window. |
+| `bitmap` | `NonceManager` (RX) | `[u64; 4]` | runtime | RFC-6479-style seen-set: `verify_nonce` records each accepted sequence, rejecting exact replays within the window and sequences older than `highest − window`. |
+
+### Key agreement — `crypto/ecdh.rs`
+
+| Parameter | Where | Type | Value | Purpose |
+|-----------|-------|------|-------|---------|
+| curve | compile-time | — | P-384 under `defense-full`, else P-256 | ECDH curve selected by build feature. |
+| `MAX_PUBKEY_LEN` | const | `usize` | `49` | Upper bound on a compressed SEC1 public key (33 B P-256 / 49 B P-384). |
+| `rng` | `generate_ephemeral` | `impl CryptoRngCore` | caller-supplied | CSPRNG for the ephemeral secret (HAL hardware RNG on embedded, `OsRng` on hosts). |
+| `salt`, `info` | `derive_session_keys` | `&[u8]` | caller-supplied | Bind HKDF-SHA-256 to a session/context; both peers must agree. Output is a 32-byte AES key + a 32-byte HMAC key (`SessionKeys`). |
 
 ### Build features — `crates/jfl-core/Cargo.toml`
 

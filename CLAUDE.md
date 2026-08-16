@@ -16,15 +16,19 @@ cargo test -p jfl-core frame::  # run a single module's tests (filter by path su
 cargo clippy --all-targets --all-features
 cargo fmt --all --check
 
-cargo run -p jfl-gcs -- --config config/commercial-high.toml   # GCS client (clap CLI)
-cargo run -p jfl-sim --                                         # simulator
-cargo build -p key_provisioner -p link_analyzer --release      # tools (note: package names, not paths)
+cargo run -p jfl-gcs -- --config config/defense-full.toml selftest   # GCS: end-to-end handshake+decode self-test
+cargo run -p jfl-gcs -- --config config/commercial-high.toml profile # GCS: print a profile (also: `decode`)
+cargo run -p jfl-sim -- --scenario defense-full --jam wide           # simulator scenario runner (clap CLI)
+cargo run -p key_provisioner -- handshake                            # ECDH provisioning demo
+cargo run -p link_analyzer -- --samples 48                           # RF link-quality dashboard
 ```
 
-Fuzzing needs the nightly `cargo-fuzz` toolchain; the package is named `jfl-fuzz`:
+The `tools/fuzz` crate is **detached from the workspace** (it's a `#![no_main]` libFuzzer target), so a normal `cargo build`/`test` skips it. Fuzz it with the nightly `cargo-fuzz` toolchain (package `jfl-fuzz`, target `frame_fuzz`):
 ```bash
-cd tools/fuzz && cargo fuzz run frame_fuzz -- -max_len=256 -timeout=1
+cargo +nightly fuzz run frame_fuzz --fuzz-dir tools/fuzz -- -max_len=512
 ```
+
+CI (`.github/workflows/ci.yml`) gates on `cargo fmt --check`, clippy, build, and test on stable, plus a non-blocking nightly fuzz job.
 
 ## Architecture
 
@@ -39,13 +43,14 @@ tools/{key_provisioner, link_analyzer, fuzz}  → also depend on jfl-core
 ```
 
 - **`crates/jfl-core`** — the protocol engine. `#![no_std]`, `#![deny(unsafe_code)]`. Module groups: `frame`/`mavlink_compat`/`native` (wire format), `crypto/{aes_gcm,ecdh,hkdf,hmac,nonce}`, `channel/{manager,voter,failover}` (dual-channel arbitration), `anti_jam/{fhss,dsss,detector}`. No heap in core types — uses `heapless::Vec`.
-- **`crates/jfl-hal`** — radio traits (`DatalinkTx`, `DatalinkRx`, `FrequencyHop`, `PowerControl`, `HwStatus`) with concrete drivers: `rfd900` (900MHz serial), `sx1280` (2.4GHz Semtech), `sdr` (USRP/HackRF). Add a driver by implementing the traits in a new `src/*.rs` and exporting it from `lib.rs`.
-- **`crates/jfl-gcs`** — `decoder.rs` is the full receive stack (PHY → nonce/replay check → AES-GCM decrypt → HMAC verify → native payload decode); `key_store.rs` fronts the OS keychain.
+- **`crates/jfl-hal`** — radio traits in `traits.rs`: `RadioTx`, `RadioRx`, `FrequencyHop`, `PowerControl`, `HwStatus`, and a `SerialLine` transport abstraction, all returning a real `HalError` enum (not `()`). Concrete drivers: `rfd900` (900MHz UART, CRC-16 framing + SiK AT commands), `sx1280` (2.4GHz SPI, real datasheet opcodes), `sdr` (host-only `SdrBackend` interface — no bundled `no_std` backend). Add a driver by implementing the traits in a new `src/*.rs` and exporting it from `lib.rs`. (Docs elsewhere name `DatalinkTx`/`DatalinkRx` — those are stale; the real names are above.)
+- **`crates/jfl-gcs`** — `decoder.rs` is the full receive stack (parse → HMAC verify → replay check → AES-GCM decrypt → native payload), wired in via `mod` in `main.rs`; `tx.rs` is the encrypt-then-MAC transmit path; `key_store.rs` is **fail-closed** (real ECDH handshake seeded from `OsRng`, AES-256-GCM encrypted-at-rest under a runtime KEK — never returns placeholder keys); `config.rs` loads the profile TOML.
 - **`crates/jfl-sim`** — `channel_emulator.rs` (latency/jitter/loss) + `threat_injector.rs` (jam/replay/spoof) for testing failover and anti-jam logic without hardware.
 
 ### Frame format (`jfl-core/src/frame.rs`)
 The wire layout is MAVLink-v2-derived with a crypto envelope: 24-byte header + payload + 16-byte GCM tag + 32-byte HMAC. Key invariants when touching this file:
-- `from_bytes` takes `&'a [u8]` and returns borrowed data — parser returns `Result<_, JflError>` and **must never panic** (this is a security invariant, enforced by convention and fuzzing, not just the type).
+- `from_bytes` takes `&'a [u8]` and returns borrowed data — parser returns `Result<_, JflError>` and **must never panic** (a security invariant, enforced by unit tests, a `proptest`, and the `frame_fuzz` libFuzzer target — not just the type).
+- Nonce layout: 4-byte session prefix + 8-byte LE monotonic sequence (`crypto/nonce.rs`); RX replay validation is a sliding-window bitmap in `NonceManager`, TX generation is `NonceGenerator`.
 - A frame with the crypto-active flag (`incompat_flags & 0x02`) unset is rejected as `UnsupportedVersion` — plaintext frames are intentionally not accepted.
 
 ## Feature flags (important — docs are stale here)
@@ -67,4 +72,6 @@ The four runtime profiles in `config/*.toml` (`commercial-low`, `commercial-high
 
 ## Documentation notes
 
-`README.MD`, `DEVELOPER.md`, and `USER_MANUAL.md` are extensive but predate the current code — trust `Cargo.toml` and source over prose. `README.MD` shows Windows/PowerShell paths (`C:\home\project\...`) that don't apply on this Linux checkout, and both README and DEVELOPER reference a `REVISION_CONTROL.md` that does not exist. Verify commands against the crate you're actually building.
+Current and code-accurate: `CLAUDE.md`, `PROJECT_REPORT.md`, `PARAMETERS.md`, `ARCHITECTURE.md` (+ rendered `docs/architecture.html`).
+
+Stale — predate the current code, trust `Cargo.toml` and source over prose: `README.MD`, `DEVELOPER.md`, `USER_MANUAL.md`. `README.MD` shows Windows/PowerShell paths (`C:\home\project\...`) that don't apply on this Linux checkout; both README and DEVELOPER reference a `REVISION_CONTROL.md` that does not exist and name HAL traits (`DatalinkTx`/`DatalinkRx`) and crypto features (`crypto_aes`/`crypto_ecdh`) that aren't real. Verify commands against the crate you're actually building.
