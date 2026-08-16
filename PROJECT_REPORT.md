@@ -50,7 +50,7 @@ command. Design pillars:
   ECDH/HKDF session-key path.
 - **Redundancy** — two RF channels (A/B) with health-scored arbitration and
   hysteresis-based failover.
-- **Anti-jam** — FHSS, DSSS (Barker-11), and a spectral jam detector.
+- **Anti-jam** — keyed FHSS hop schedule, DSSS (Barker-11), and a spectral jam detector.
 - **Interoperability** — transparent wrapping of MAVLink v2 or native JFOXLink
   payloads behind one crypto envelope.
 - **Profiles** — four certification-oriented profiles selecting crypto suite,
@@ -98,10 +98,10 @@ size-optimized (`opt-level="z"`, `lto`, `codegen-units=1`, `panic="abort"`).
 | `crypto/aes_gcm.rs` | 🟢 | AES-256-GCM in-place detached; key zeroized on drop. |
 | `crypto/hmac.rs` | 🟢 | HMAC-SHA-256 compute/verify. |
 | `crypto/hkdf.rs` | 🟢 | HKDF-SHA-256 expand; output zeroized. |
-| `crypto/ecdh.rs` | 🟢 | **Real** ephemeral ECDH (P-384/P-256) → HKDF `SessionKeys`; caller-injected CSPRNG; rejects malformed peer keys. |
+| `crypto/ecdh.rs` | 🟢 | **Real** ephemeral ECDH (P-384/P-256) → HKDF `SessionKeys` (AES + HMAC + FHSS hop key); caller-injected CSPRNG; rejects malformed peer keys. |
 | `crypto/nonce.rs` | 🟢 | `NonceGenerator` (96-bit nonce, exhaustion-safe) + `NonceManager` (RFC-6479 sliding-window bitmap). |
 | `channel/{manager,voter,failover}.rs` | 🟢 | Health-scored arbitration, frame voting, hysteresis failover. NaN-safe scoring, saturating timer. |
-| `anti_jam/fhss.rs` | 🟡 | LFSR hop generator; hardened against zero-state lockup & divide-by-zero. **Deterministic — not cryptographic** (documented; needs a keyed schedule for defense). |
+| `anti_jam/fhss.rs` | 🟢 | `KeyedHopSchedule`: HMAC-SHA256-keyed per-epoch permutation (no repeats in an epoch, unpredictable without the session hop key, GPS-slot resync); plus the legacy `FhssEngine` LFSR (hardened, non-crypto) for hobbyist/commercial. |
 | `anti_jam/dsss.rs` | 🟡 | Barker-11 spread only (no despread). |
 | `anti_jam/detector.rs` | 🟡 | Threshold over a 64-bin FFT buffer; buffer populated by the sim/host, not core; no hysteresis (crude dBm/energy scaling). |
 
@@ -171,8 +171,10 @@ Strengths:
 - `#![deny(unsafe_code)]` in the core; never-panic parser.
 
 Residual security notes:
-- **FHSS hop sequence is a deterministic LFSR** (predictable) — replace with a
-  keyed/CSPRNG schedule for defense builds.
+- **FHSS**: defense profiles must drive the radio from `KeyedHopSchedule` (keyed
+  by the session `hop_key`); the legacy `FhssEngine` LFSR remains predictable
+  and is for hobbyist/commercial interference avoidance only. Slot
+  synchronisation (GPS time / beacon) is the integrator's responsibility.
 - **At-rest KEK** must be supplied from an OS keychain / HSM by the integrator;
   the store provides the encrypted-blob mechanism, not the hardware root.
 - **Jam detector** semantics are coarse (energy/dBm scaling, no hysteresis).
@@ -181,11 +183,13 @@ Residual security notes:
 
 ## 7. Code quality & verification
 
-- **Tests: 49, all passing** — `jfl-core` 23 (incl. property tests), `jfl-gcs` 9,
+- **Tests: 59, all passing** — `jfl-core` 33 (incl. property tests), `jfl-gcs` 9,
   `jfl-hal` 11, `jfl-sim` 6. Coverage spans the never-panic parser, ECDH
   agreement, sliding-window replay, NaN-safe arbitration, failover overflow,
-  FHSS lockup, driver framing/opcodes, key-store handshake + persistence, and an
-  end-to-end encrypt→decode→replay→tamper path.
+  FHSS lockup, keyed-schedule permutation/agreement/resync/boundary properties,
+  driver framing/opcodes, key-store handshake + persistence, and an end-to-end
+  encrypt→decode→replay→tamper path (the GCS `selftest` also checks both peers
+  agree on the keyed hop schedule and resync after a dropout).
 - **CI** (`.github/workflows/ci.yml`): fmt-check, clippy, build, test on stable;
   a non-blocking nightly `cargo-fuzz` job.
 - **Fuzzing:** real libFuzzer target driving the parser (was a stub).
@@ -205,7 +209,6 @@ remains is either an external gate or a documented residual:
 | Physical-radio validation (RFD900/SX1280/SDR in the loop) | External | Drivers are unit-tested against mocks; not run on hardware here. |
 | HSM hardware & key ceremony | External | Store consumes a runtime KEK; hardware root is the integrator's. |
 | DO-178C / MIL-STD certification, formal verification, RF/regulatory testing | External | Cannot be produced in software. |
-| Cryptographic FHSS schedule | Residual (software) | LFSR hardened but still deterministic. |
 | Jam-detector calibration/hysteresis | Residual (software) | Coarse energy model. |
 | SDR concrete backend | Residual (host) | Interface defined; backend is host-side. |
 
@@ -217,7 +220,7 @@ remains is either an external gate or a documented residual:
 |------|----------|------|
 | Deployed without hardware/RF validation | **High** | Software is tested but unproven on real radios; do not fly on this basis. |
 | No certification evidence | **High** (for regulated use) | DO-178C/MIL-STD not started. |
-| Predictable FHSS sequence | Medium (defense) | Replace with a keyed schedule before high-threat use. |
+| FHSS slot synchronisation | Medium (defense) | Keyed schedule is in place; peers still need a trusted slot/time reference (GPS / encrypted beacon) from the integrator. |
 | KEK sourcing left to integrator | Medium | A weak/persisted KEK undermines at-rest protection. |
 | Documentation drift | Low | Docs refreshed this session; keep in sync on change. |
 
@@ -227,8 +230,9 @@ remains is either an external gate or a documented residual:
 
 1. **Hardware bring-up** — run RFD900 and SX1280 drivers against real modules;
    validate framing, timing, and RSSI on-air.
-2. **Keyed FHSS schedule** — derive the hop sequence from session key material
-   (CSPRNG/keyed) for defense profiles.
+2. **FHSS slot sync** — feed `KeyedHopSchedule::sync_to` from GPS time or an
+   authenticated beacon and drive `FrequencyHop::set_channel` from it on the
+   HAL side.
 3. **KEK integration** — wire the key store to a real OS keychain / PKCS#11 HSM.
 4. **Jam-detector calibration** — define units and add hysteresis/dwell.
 5. **SDR backend** — implement a host-side `SdrBackend` (SoapySDR/UHD).
@@ -244,7 +248,7 @@ datalink — not a scaffold. The protocol core, cryptography (with genuine ECDH
 key agreement), radio drivers, key storage, executables, fuzzing, and CI are all
 in place and green. The remaining work is dominated by **hardware validation and
 certification** — external gates that no amount of code can substitute for — plus
-a few documented software residuals (keyed FHSS, jam-detector calibration, a
+a few documented software residuals (FHSS slot sync, jam-detector calibration, a
 concrete SDR backend). It should not be flown or fielded until the hardware and
 certification gates are met.
 

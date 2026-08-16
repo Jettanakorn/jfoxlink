@@ -23,7 +23,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// Domain-separation label bound into the at-rest AES-GCM as AAD.
 const KEYSTORE_AAD: &[u8] = b"JFL-KEYSTORE-v1";
 /// Plaintext layout on disk: aes(32) || hmac(32) || nonce_prefix(4).
-const KEY_MATERIAL_LEN: usize = 32 + 32 + 4;
+const KEY_MATERIAL_LEN: usize = 32 + 32 + 32 + 4;
 
 #[derive(Debug)]
 pub enum KeyStoreError {
@@ -46,6 +46,8 @@ impl From<std::io::Error> for KeyStoreError {
 pub struct SecureKey {
     pub aes_key: [u8; 32],
     pub hmac_key: [u8; 32],
+    /// Keys the FHSS hop schedule (`jfl_core::anti_jam::fhss::KeyedHopSchedule`).
+    pub hop_key: [u8; 32],
     /// 4-byte per-session nonce prefix consumed by `NonceGenerator`.
     pub nonce_prefix: [u8; 4],
 }
@@ -55,7 +57,8 @@ impl SecureKey {
         let mut out = [0u8; KEY_MATERIAL_LEN];
         out[0..32].copy_from_slice(&self.aes_key);
         out[32..64].copy_from_slice(&self.hmac_key);
-        out[64..68].copy_from_slice(&self.nonce_prefix);
+        out[64..96].copy_from_slice(&self.hop_key);
+        out[96..100].copy_from_slice(&self.nonce_prefix);
         out
     }
 
@@ -65,13 +68,16 @@ impl SecureKey {
         }
         let mut aes_key = [0u8; 32];
         let mut hmac_key = [0u8; 32];
+        let mut hop_key = [0u8; 32];
         let mut nonce_prefix = [0u8; 4];
         aes_key.copy_from_slice(&b[0..32]);
         hmac_key.copy_from_slice(&b[32..64]);
-        nonce_prefix.copy_from_slice(&b[64..68]);
+        hop_key.copy_from_slice(&b[64..96]);
+        nonce_prefix.copy_from_slice(&b[96..100]);
         Ok(Self {
             aes_key,
             hmac_key,
+            hop_key,
             nonce_prefix,
         })
     }
@@ -131,6 +137,7 @@ impl KeyStore {
         let secure = SecureKey {
             aes_key: keys.aes_key,
             hmac_key: keys.hmac_key,
+            hop_key: keys.hop_key,
             nonce_prefix,
         };
         self.install(secure)
@@ -144,6 +151,7 @@ impl KeyStore {
         if let Some(ref mut old) = *slot {
             old.aes_key.zeroize();
             old.hmac_key.zeroize();
+            old.hop_key.zeroize();
             old.nonce_prefix.zeroize();
         }
         *slot = Some(key);
@@ -161,6 +169,7 @@ impl KeyStore {
             Some(ref k) => Ok(SecureKey {
                 aes_key: k.aes_key,
                 hmac_key: k.hmac_key,
+                hop_key: k.hop_key,
                 nonce_prefix: k.nonce_prefix,
             }),
             None => Err(KeyStoreError::KeyNotLoaded),
@@ -178,6 +187,7 @@ impl KeyStore {
             if let Some(ref mut k) = *slot {
                 k.aes_key.zeroize();
                 k.hmac_key.zeroize();
+                k.hop_key.zeroize();
                 k.nonce_prefix.zeroize();
             }
             *slot = None;
@@ -275,7 +285,9 @@ mod tests {
         let kb = b.load_keys().unwrap();
         assert_eq!(ka.aes_key, kb.aes_key);
         assert_eq!(ka.hmac_key, kb.hmac_key);
+        assert_eq!(ka.hop_key, kb.hop_key);
         assert_ne!(ka.aes_key, [0u8; 32]); // never the old placeholder
+        assert_ne!(ka.hop_key, [0u8; 32]);
     }
 
     #[test]
@@ -307,6 +319,7 @@ mod tests {
         let got = reloaded.load_keys().unwrap();
         assert_eq!(got.aes_key, original.aes_key);
         assert_eq!(got.hmac_key, original.hmac_key);
+        assert_eq!(got.hop_key, original.hop_key);
         assert_eq!(got.nonce_prefix, original.nonce_prefix);
 
         // Wrong KEK must fail (authenticated decryption).

@@ -5,6 +5,7 @@
 //! hardware RNG via the HAL on embedded targets, or `OsRng` on hosts — so this
 //! module has no ambient entropy source and stays `no_std`.
 
+use crate::anti_jam::fhss::HopKey;
 use crate::crypto::hkdf::HkdfEngine;
 use crate::frame::JflError;
 use heapless::Vec;
@@ -28,6 +29,17 @@ pub const MAX_PUBKEY_LEN: usize = 49;
 pub struct SessionKeys {
     pub aes_key: [u8; 32],
     pub hmac_key: [u8; 32],
+    /// Keys the FHSS hop schedule (`anti_jam::fhss::KeyedHopSchedule`) so the
+    /// hop sequence is unpredictable to anyone without the session secret.
+    pub hop_key: [u8; 32],
+}
+
+impl SessionKeys {
+    /// The hop key wrapped for the keyed FHSS schedule.
+    #[must_use]
+    pub fn hop_key(&self) -> HopKey {
+        HopKey(self.hop_key)
+    }
 }
 
 pub struct EcdhSession;
@@ -47,7 +59,8 @@ impl EcdhSession {
     }
 
     /// Completes the exchange: mixes our ephemeral secret with the peer's public
-    /// key and derives independent AES and HMAC keys via HKDF-SHA-256.
+    /// key and derives independent AES, HMAC and FHSS hop keys via
+    /// HKDF-SHA-256.
     ///
     /// `salt` and `info` bind the derivation to a session/context; both peers
     /// must agree on them. A malformed peer key is rejected rather than
@@ -63,13 +76,21 @@ impl EcdhSession {
         let shared = my_secret.diffie_hellman(&peer);
         let ikm = shared.raw_secret_bytes();
 
-        // 64 bytes of OKM split into two independent 32-byte keys.
-        let okm = HkdfEngine::expand(salt, ikm.as_slice(), info, 64)?;
+        // 96 bytes of OKM split into three independent 32-byte keys. HKDF
+        // output is prefix-stable, so the AES/HMAC keys are identical to the
+        // former 64-byte derivation; the hop key is the appended third block.
+        let okm = HkdfEngine::expand(salt, ikm.as_slice(), info, 96)?;
         let mut aes_key = [0u8; 32];
         let mut hmac_key = [0u8; 32];
+        let mut hop_key = [0u8; 32];
         aes_key.copy_from_slice(&okm[0..32]);
         hmac_key.copy_from_slice(&okm[32..64]);
-        Ok(SessionKeys { aes_key, hmac_key })
+        hop_key.copy_from_slice(&okm[64..96]);
+        Ok(SessionKeys {
+            aes_key,
+            hmac_key,
+            hop_key,
+        })
     }
 }
 
@@ -117,8 +138,12 @@ mod tests {
         // Both sides derive the same keys...
         assert_eq!(ka.aes_key, kb.aes_key);
         assert_eq!(ka.hmac_key, kb.hmac_key);
-        // ...and the AES and HMAC keys are independent.
+        assert_eq!(ka.hop_key, kb.hop_key);
+        // ...and the AES, HMAC and hop keys are pairwise independent.
         assert_ne!(ka.aes_key, ka.hmac_key);
+        assert_ne!(ka.aes_key, ka.hop_key);
+        assert_ne!(ka.hmac_key, ka.hop_key);
+        assert_ne!(ka.hop_key, [0u8; 32]);
         // ...and not all-zero (the old placeholder behavior).
         assert_ne!(ka.aes_key, [0u8; 32]);
     }
