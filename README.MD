@@ -81,6 +81,7 @@ Values are read verbatim from `config/*.toml`; the full parameter reference is i
 - **[PROJECT_REPORT.md](PROJECT_REPORT.md)** — component status, verification, risks, and remaining gaps.
 - **[DEVELOPER.md](DEVELOPER.md)** — architecture, crate design, and development workflow.
 - **[USER_MANUAL.md](USER_MANUAL.md)** — installation, profiles, operation, and troubleshooting.
+- **[MAVLINK_PROTOCOL_HANDBOOK.md](MAVLINK_PROTOCOL_HANDBOOK.md)** — reference to the MAVLink protocol JFOXLink is derived from: packet framing, CRC, signing, routing, XML dialects, microservices, and how JFOXLink extends it.
 - **[CHANGELOG.md](CHANGELOG.md)** · **[LICENSE.md](LICENSE.md)**
 
 ## Notes
