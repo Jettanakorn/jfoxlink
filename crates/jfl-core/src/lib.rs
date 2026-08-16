@@ -15,15 +15,15 @@ pub mod crypto {
 }
 
 pub mod channel {
+    pub mod failover;
     pub mod manager;
     pub mod voter;
-    pub mod failover;
 }
 
 pub mod anti_jam {
     pub mod detector;
-    pub mod fhss;
     pub mod dsss;
+    pub mod fhss;
 }
 
-pub use frame::{JflFrame, JflError};
+pub use frame::{JflError, JflFrame};

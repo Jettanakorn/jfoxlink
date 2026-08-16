@@ -1,6 +1,6 @@
+use jfl_core::channel::manager::{ChannelHealth, ChannelId, ChannelState};
 use rand::{Rng, SeedableRng};
 use std::collections::VecDeque;
-use jfl_core::channel::manager::{ChannelId, ChannelState, ChannelHealth};
 
 /// Dual-channel RF impairment model for deterministic & stochastic simulation.
 /// INVARIANT: All impairments are reversible for testing; no side-effects outside emulator state.
@@ -52,7 +52,7 @@ impl ChannelEmulator {
         }
 
         let mut out = frame.to_vec();
-        
+
         // 2. BER simulation: probabilistic bit flips
         if self.ber > 0.0 {
             for byte in out.iter_mut() {
@@ -63,8 +63,8 @@ impl ChannelEmulator {
         }
 
         // 3. Fading & RSSI variation (Rayleigh placeholder)
-        self.current_rssi_dbm = (self.base_rssi_dbm as f32 * self.fading_coeff +
-                                 self.rng.gen_range(-5.0..5.0)) as i8;
+        self.current_rssi_dbm =
+            (self.base_rssi_dbm as f32 * self.fading_coeff + self.rng.gen_range(-5.0..5.0)) as i8;
 
         // 4. Latency + Jitter accumulation
         let jitter = self.rng.gen_range(-self.jitter_ms..self.jitter_ms);
@@ -72,7 +72,9 @@ impl ChannelEmulator {
 
         // Cache for replay/threat injection
         self.packet_history.push_back(frame.to_vec());
-        if self.packet_history.len() > 128 { self.packet_history.pop_front(); }
+        if self.packet_history.len() > 128 {
+            self.packet_history.pop_front();
+        }
 
         Ok(Some(out))
     }
@@ -83,7 +85,7 @@ impl ChannelEmulator {
         let n = if self.id == ChannelId::A { 2.2 } else { 2.8 }; // FHSS vs DSSS path loss exponent
         let pl = 10.0 * n * distance_m.max(1.0).log10() + weather_loss_db;
         self.base_rssi_dbm = (-50.0 - pl).round().clamp(-95.0, -10.0) as i8;
-        
+
         // Random fade events
         self.fading_coeff = if self.rng.gen_bool(0.05) { 0.6 } else { 1.0 };
     }

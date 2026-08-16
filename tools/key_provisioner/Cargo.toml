@@ -5,3 +5,5 @@ edition = "2021"
 [dependencies]
 jfl-core = { path = "../../crates/jfl-core" }
 clap = { version = "4.4", features = ["derive"] }
+rand = "0.8"
+sha2 = "0.10"

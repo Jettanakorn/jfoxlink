@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: build · fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        # The crates opt into `#![warn(clippy::pedantic)]` (advisory, not deny),
+        # so clippy reports lints without failing the build — matching the
+        # project's own lint policy. Build/test/fmt are the hard gates.
+        run: cargo clippy --workspace --all-targets
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+
+  fuzz:
+    name: fuzz smoke (frame parser)
+    runs-on: ubuntu-latest
+    # Non-blocking: cargo-fuzz needs nightly + a sanitizer toolchain and can be
+    # environment-sensitive; failures here should not red the whole pipeline.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build fuzz target
+        run: cargo +nightly fuzz build frame_fuzz --fuzz-dir tools/fuzz
+
+      - name: Short fuzz run
+        run: cargo +nightly fuzz run frame_fuzz --fuzz-dir tools/fuzz -- -max_len=512 -runs=200000 -max_total_time=45

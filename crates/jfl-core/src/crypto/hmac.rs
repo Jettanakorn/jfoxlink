@@ -1,7 +1,6 @@
-#![no_std]
+use crate::frame::JflError;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use crate::frame::JflError;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -15,5 +14,9 @@ pub fn compute_hmac(key: &[u8; 32], frame_data: &[u8]) -> Result<[u8; 32], JflEr
 
 pub fn verify_hmac(key: &[u8; 32], frame_data: &[u8], expected: &[u8; 32]) -> Result<(), JflError> {
     let actual = compute_hmac(key, frame_data)?;
-    if actual == *expected { Ok(()) } else { Err(JflError::HmacMismatch) }
+    if actual == *expected {
+        Ok(())
+    } else {
+        Err(JflError::HmacMismatch)
+    }
 }

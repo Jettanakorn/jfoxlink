@@ -1,5 +1,5 @@
-use heapless::Vec;
 use crate::frame::{JflError, JFL_CRYPTO_FLAG};
+use heapless::Vec;
 
 /// Native JFOXLink payload container.
 pub struct NativeMessage {
@@ -17,6 +17,9 @@ pub struct NativeCompat;
 
 impl NativeCompat {
     /// Builds a JFOXLink frame around a native payload.
+    // Each argument maps to a distinct wire-format field; grouping them into a
+    // struct would only obscure the layout.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_jfl_frame(
         payload: &[u8],
         seq: u8,
@@ -27,21 +30,33 @@ impl NativeCompat {
         gcm_tag: [u8; 16],
         hmac: [u8; 32],
     ) -> Result<Vec<u8, 600>, JflError> {
+        // The length field is a single byte; a longer payload would truncate it
+        // and desync the parser's length check. Reject rather than corrupt.
+        if payload.len() > u8::MAX as usize {
+            return Err(JflError::LengthMismatch);
+        }
         let mut buf = Vec::new();
         buf.push(0xFD).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(payload.len() as u8).map_err(|_| JflError::BufferOverflow)?;
-        buf.push(JFL_CRYPTO_FLAG).map_err(|_| JflError::BufferOverflow)?;
+        buf.push(payload.len() as u8)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.push(JFL_CRYPTO_FLAG)
+            .map_err(|_| JflError::BufferOverflow)?;
         buf.push(0x00).map_err(|_| JflError::BufferOverflow)?; // compat flags
         buf.push(seq).map_err(|_| JflError::BufferOverflow)?;
         buf.push(sysid).map_err(|_| JflError::BufferOverflow)?;
         buf.push(compid).map_err(|_| JflError::BufferOverflow)?;
-        buf.extend_from_slice(&msgid);
+        buf.extend_from_slice(&msgid)
+            .map_err(|_| JflError::BufferOverflow)?;
         buf.push(0x01).map_err(|_| JflError::BufferOverflow)?; // JFL version
-        buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&nonce)
+            .map_err(|_| JflError::BufferOverflow)?;
         buf.push(0x03).map_err(|_| JflError::BufferOverflow)?; // channel flags
-        buf.extend_from_slice(payload);
-        buf.extend_from_slice(&gcm_tag);
-        buf.extend_from_slice(&hmac);
+        buf.extend_from_slice(payload)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(&gcm_tag)
+            .map_err(|_| JflError::BufferOverflow)?;
+        buf.extend_from_slice(&hmac)
+            .map_err(|_| JflError::BufferOverflow)?;
         Ok(buf)
     }
 
@@ -49,7 +64,9 @@ impl NativeCompat {
     pub fn parse_native_message(raw: &[u8]) -> Result<NativeMessage, JflError> {
         let frame = crate::frame::JflFrame::from_bytes(raw)?;
         let mut payload = Vec::new();
-        payload.extend_from_slice(frame.encrypted_payload).map_err(|_| JflError::BufferOverflow)?;
+        payload
+            .extend_from_slice(frame.encrypted_payload)
+            .map_err(|_| JflError::BufferOverflow)?;
 
         Ok(NativeMessage {
             seq: frame.seq,
