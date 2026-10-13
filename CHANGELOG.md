@@ -2,6 +2,20 @@
 
 All notable changes to JFOXLink are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **PSK-bound ECDH handshake** (`jfl-core::crypto::handshake`): two-message,
+  authenticated per-peer session establishment. The ephemeral ECDH exchange is
+  bound to an operator-provisioned pre-shared key, so a peer without the key is
+  refused (both directions) and traffic keeps forward secrecy. Key confirmation
+  over the whole transcript; constant-time MAC checks; never panics (tested on
+  every truncation and tampered byte). Distinct nonce prefixes per role, since
+  both directions share one session key.
+- `key_provisioner psk <file>`: writes a pre-shared key for one peer pair
+  (owner-only file mode on Unix, never overwrites, prints a fingerprint only).
+
 ## [1.0.0] - 2026-05-25
 
 ### Added

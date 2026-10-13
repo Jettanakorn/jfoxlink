@@ -304,7 +304,16 @@ Once airborne:
    ```bash
    cargo run -p key_provisioner --release -- handshake   # two-party agreement demo
    cargo run -p key_provisioner --release -- pubkey       # print an ephemeral public key
+   cargo run -p key_provisioner --release -- psk sim-to-studio.psk --label "sim gateway <-> studio"
    ```
+
+   `psk` writes a pre-shared key for **one peer pair**. Copy the file to both
+   peers (and nowhere else); each pair gets its own. The runtime's PSK-bound
+   ECDH handshake (`jfl_core::crypto::handshake`) mixes this key into the
+   session-key derivation, so a peer without it cannot complete a handshake
+   or read a frame, while the session keys themselves are fresh (ephemeral
+   ECDH) every time. The tool never prints the key, only a fingerprint, and
+   refuses to overwrite an existing file.
 
 2. **Storage**: The GCS key store is fail-closed and encrypts session keys at
    rest with AES-256-GCM under a key-encryption key (KEK) the integrator sources
