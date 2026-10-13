@@ -9,6 +9,7 @@ pub mod native;
 pub mod crypto {
     pub mod aes_gcm;
     pub mod ecdh;
+    pub mod handshake;
     pub mod hkdf;
     pub mod hmac;
     pub mod nonce;
